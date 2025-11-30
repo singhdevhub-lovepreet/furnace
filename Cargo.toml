@@ -1,0 +1,9 @@
+[package]
+name = "ml-with-systems"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+memmap2 = "0.9.9"
+ndarray = "0.17.1"
+ndarray-linalg = "0.18.0"

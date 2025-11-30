@@ -1,0 +1,49 @@
+# Rust build artifacts
+/target/
+debug/
+*.pdb
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# OS-specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Environment and secrets
+.env
+.env.*
+*.local
+
+# Logs
+*.log
+logs/
+
+# Profiling and debugging
+*.profraw
+perf.data
+perf.data.old
+flamegraph.svg
+callgrind.out.*
+
+# Backup files
+*.bak
+*.backup
+*.orig
+
+# Generated documentation (uncomment if you don't want to track docs)
+# /doc/
+

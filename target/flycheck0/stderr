@@ -1,0 +1,105 @@
+   0.019087459s  INFO prepare_target{force=false package_id=ml-with-systems v0.1.0 (/Users/lovepreetsingh/Desktop/furnace) target="ml-with-systems"}: cargo::core::compiler::fingerprint: dependency on `build_script_build` is newer than we are 1764509258.967901359s > 1764509258.794403844s "/Users/lovepreetsingh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.177"
+   0.019258209s  INFO prepare_target{force=false package_id=ml-with-systems v0.1.0 (/Users/lovepreetsingh/Desktop/furnace) target="ml-with-systems"}: cargo::core::compiler::fingerprint: dependency on `build_script_build` is newer than we are 1764509281.334328794s > 1764509258.903988220s "/Users/lovepreetsingh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/num-traits-0.2.19"
+   0.019421792s  INFO prepare_target{force=false package_id=ml-with-systems v0.1.0 (/Users/lovepreetsingh/Desktop/furnace) target="ml-with-systems"}: cargo::core::compiler::fingerprint: dependency on `build_script_build` is newer than we are 1764509258.983197981s > 1764509258.785139621s "/Users/lovepreetsingh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrixmultiply-0.3.10"
+   0.019510875s  INFO prepare_target{force=false package_id=ml-with-systems v0.1.0 (/Users/lovepreetsingh/Desktop/furnace) target="ml-with-systems"}: cargo::core::compiler::fingerprint: dependency on `build_script_build` is newer than we are 1764509281.332985321s > 1764509258.860996554s "/Users/lovepreetsingh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zerocopy-0.8.30"
+   0.019582750s  INFO prepare_target{force=false package_id=ml-with-systems v0.1.0 (/Users/lovepreetsingh/Desktop/furnace) target="ml-with-systems"}: cargo::core::compiler::fingerprint: dependency on `cfg_if` is newer than we are 1764509258.915724720s > 1764509258.852103584s "/Users/lovepreetsingh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.16"
+   0.019772167s  INFO prepare_target{force=false package_id=ml-with-systems v0.1.0 (/Users/lovepreetsingh/Desktop/furnace) target="ml-with-systems"}: cargo::core::compiler::fingerprint: dependency on `build_script_build` is newer than we are 1764509258.961663668s > 1764509258.828354873s "/Users/lovepreetsingh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_core-1.0.228"
+   0.020395000s  INFO prepare_target{force=false package_id=ml-with-systems v0.1.0 (/Users/lovepreetsingh/Desktop/furnace) target="ml-with-systems"}: cargo::core::compiler::fingerprint: dependency on `build_script_build` is newer than we are 1764509258.966028298s > 1764509258.915249923s "/Users/lovepreetsingh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.17"
+   0.020422750s  INFO prepare_target{force=false package_id=ml-with-systems v0.1.0 (/Users/lovepreetsingh/Desktop/furnace) target="ml-with-systems"}: cargo::core::compiler::fingerprint: dependency on `katexit` is newer than we are 1764509285.164456971s > 1764509258.780162901s "/Users/lovepreetsingh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lax-0.18.0"
+   0.020433125s  INFO prepare_target{force=false package_id=ml-with-systems v0.1.0 (/Users/lovepreetsingh/Desktop/furnace) target="ml-with-systems"}: cargo::core::compiler::fingerprint: dependency on `katexit` is newer than we are 1764509285.164456971s > 1764509258.810745143s "/Users/lovepreetsingh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ndarray-linalg-0.18.0"
+   0.020503542s  INFO prepare_target{force=false package_id=ml-with-systems v0.1.0 (/Users/lovepreetsingh/Desktop/furnace) target="ml-with-systems"}: cargo::core::compiler::fingerprint: fingerprint error for ml-with-systems v0.1.0 (/Users/lovepreetsingh/Desktop/furnace)/Check { test: false }/TargetInner { name: "ml-with-systems", doc: true, ..: with_path("/Users/lovepreetsingh/Desktop/furnace/src/main.rs", Edition2024) }
+   0.020763750s  INFO prepare_target{force=false package_id=ml-with-systems v0.1.0 (/Users/lovepreetsingh/Desktop/furnace) target="ml-with-systems"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/lovepreetsingh/Desktop/furnace/target/debug/.fingerprint/ml-with-systems-a8732b1d39f0a65b/bin-ml-with-systems`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: std::backtrace::Backtrace::create
+   1: std::backtrace::Backtrace::capture
+   2: cargo_util::paths::read_bytes
+   3: cargo_util::paths::read
+   4: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   5: cargo::core::compiler::fingerprint::prepare_target
+   6: cargo::core::compiler::compile
+   7: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   8: cargo::ops::cargo_compile::compile_ws
+   9: cargo::ops::cargo_compile::compile_with_exec
+  10: cargo::ops::cargo_compile::compile
+  11: cargo::commands::check::exec
+  12: <cargo::cli::Exec>::exec
+  13: cargo::main
+  14: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  15: std::rt::lang_start::<()>::{closure#0}
+  16: std::rt::lang_start_internal
+  17: _main
+   0.034692542s  INFO prepare_target{force=false package_id=memmap2 v0.9.9 target="memmap2"}: cargo::core::compiler::fingerprint: fingerprint dirty for memmap2 v0.9.9/Check { test: false }/TargetInner { ..: lib_target("memmap2", ["lib"], "/Users/lovepreetsingh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/memmap2-0.9.9/src/lib.rs", Edition2021) }
+   0.034712292s  INFO prepare_target{force=false package_id=memmap2 v0.9.9 target="memmap2"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "libc" })
+   0.035173917s  INFO prepare_target{force=false package_id=libc v0.2.177 target="libc"}: cargo::core::compiler::fingerprint: fingerprint dirty for libc v0.2.177/Check { test: false }/TargetInner { ..: lib_target("libc", ["lib"], "/Users/lovepreetsingh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.177/src/lib.rs", Edition2021) }
+   0.035179792s  INFO prepare_target{force=false package_id=libc v0.2.177 target="libc"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDependency { name: "build_script_build", dep_mtime: FileTime { seconds: 1764509258, nanos: 967901359 }, max_mtime: FileTime { seconds: 1764509258, nanos: 794403844 } })
+   0.035760500s  INFO prepare_target{force=false package_id=ndarray v0.17.1 target="ndarray"}: cargo::core::compiler::fingerprint: fingerprint dirty for ndarray v0.17.1/Check { test: false }/TargetInner { benched: false, ..: lib_target("ndarray", ["lib"], "/Users/lovepreetsingh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ndarray-0.17.1/src/lib.rs", Edition2021) }
+   0.035771875s  INFO prepare_target{force=false package_id=ndarray v0.17.1 target="ndarray"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "num_traits" })
+   0.036181792s  INFO prepare_target{force=false package_id=approx v0.5.1 target="approx"}: cargo::core::compiler::fingerprint: fingerprint dirty for approx v0.5.1/Check { test: false }/TargetInner { ..: lib_target("approx", ["lib"], "/Users/lovepreetsingh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/approx-0.5.1/src/lib.rs", Edition2015) }
+   0.036188750s  INFO prepare_target{force=false package_id=approx v0.5.1 target="approx"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "num_traits" })
+   0.036389250s  INFO prepare_target{force=false package_id=num-traits v0.2.19 target="num_traits"}: cargo::core::compiler::fingerprint: fingerprint dirty for num-traits v0.2.19/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("num_traits", ["lib"], "/Users/lovepreetsingh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/num-traits-0.2.19/src/lib.rs", Edition2021) }
+   0.036394000s  INFO prepare_target{force=false package_id=num-traits v0.2.19 target="num_traits"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDependency { name: "build_script_build", dep_mtime: FileTime { seconds: 1764509281, nanos: 334328794 }, max_mtime: FileTime { seconds: 1764509258, nanos: 903988220 } })
+   0.036765042s  INFO prepare_target{force=false package_id=cblas-sys v0.1.4 target="cblas_sys"}: cargo::core::compiler::fingerprint: fingerprint dirty for cblas-sys v0.1.4/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("cblas_sys", ["lib"], "/Users/lovepreetsingh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cblas-sys-0.1.4/src/lib.rs", Edition2015) }
+   0.036769334s  INFO prepare_target{force=false package_id=cblas-sys v0.1.4 target="cblas_sys"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "libc" })
+   0.036948959s  INFO prepare_target{force=false package_id=matrixmultiply v0.3.10 target="matrixmultiply"}: cargo::core::compiler::fingerprint: fingerprint dirty for matrixmultiply v0.3.10/Check { test: false }/TargetInner { benched: false, ..: lib_target("matrixmultiply", ["lib"], "/Users/lovepreetsingh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrixmultiply-0.3.10/src/lib.rs", Edition2018) }
+   0.036953250s  INFO prepare_target{force=false package_id=matrixmultiply v0.3.10 target="matrixmultiply"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDependency { name: "build_script_build", dep_mtime: FileTime { seconds: 1764509258, nanos: 983197981 }, max_mtime: FileTime { seconds: 1764509258, nanos: 785139621 } })
+   0.037314834s  INFO prepare_target{force=false package_id=num-complex v0.4.6 target="num_complex"}: cargo::core::compiler::fingerprint: fingerprint dirty for num-complex v0.4.6/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("num_complex", ["lib"], "/Users/lovepreetsingh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/num-complex-0.4.6/src/lib.rs", Edition2021) }
+   0.037320334s  INFO prepare_target{force=false package_id=num-complex v0.4.6 target="num_complex"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "num_traits" })
+   0.037549500s  INFO prepare_target{force=false package_id=rand v0.8.5 target="rand"}: cargo::core::compiler::fingerprint: fingerprint dirty for rand v0.8.5/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("rand", ["lib"], "/Users/lovepreetsingh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rand-0.8.5/src/lib.rs", Edition2018) }
+   0.037554625s  INFO prepare_target{force=false package_id=rand v0.8.5 target="rand"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "rand_chacha" })
+   0.037760084s  INFO prepare_target{force=false package_id=rand_chacha v0.3.1 target="rand_chacha"}: cargo::core::compiler::fingerprint: fingerprint dirty for rand_chacha v0.3.1/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("rand_chacha", ["lib"], "/Users/lovepreetsingh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rand_chacha-0.3.1/src/lib.rs", Edition2018) }
+   0.037764750s  INFO prepare_target{force=false package_id=rand_chacha v0.3.1 target="rand_chacha"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "ppv_lite86" })
+   0.037951084s  INFO prepare_target{force=false package_id=ppv-lite86 v0.2.21 target="ppv_lite86"}: cargo::core::compiler::fingerprint: fingerprint dirty for ppv-lite86 v0.2.21/Check { test: false }/TargetInner { ..: lib_target("ppv_lite86", ["lib"], "/Users/lovepreetsingh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ppv-lite86-0.2.21/src/lib.rs", Edition2021) }
+   0.037956792s  INFO prepare_target{force=false package_id=ppv-lite86 v0.2.21 target="ppv_lite86"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "zerocopy" })
+   0.038127542s  INFO prepare_target{force=false package_id=zerocopy v0.8.30 target="zerocopy"}: cargo::core::compiler::fingerprint: fingerprint dirty for zerocopy v0.8.30/Check { test: false }/TargetInner { ..: lib_target("zerocopy", ["lib"], "/Users/lovepreetsingh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zerocopy-0.8.30/src/lib.rs", Edition2021) }
+   0.038132209s  INFO prepare_target{force=false package_id=zerocopy v0.8.30 target="zerocopy"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDependency { name: "build_script_build", dep_mtime: FileTime { seconds: 1764509281, nanos: 332985321 }, max_mtime: FileTime { seconds: 1764509258, nanos: 860996554 } })
+   0.038448625s  INFO prepare_target{force=false package_id=rand_core v0.6.4 target="rand_core"}: cargo::core::compiler::fingerprint: fingerprint dirty for rand_core v0.6.4/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("rand_core", ["lib"], "/Users/lovepreetsingh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rand_core-0.6.4/src/lib.rs", Edition2018) }
+   0.038453667s  INFO prepare_target{force=false package_id=rand_core v0.6.4 target="rand_core"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "getrandom" })
+   0.038618417s  INFO prepare_target{force=false package_id=getrandom v0.2.16 target="getrandom"}: cargo::core::compiler::fingerprint: fingerprint dirty for getrandom v0.2.16/Check { test: false }/TargetInner { ..: lib_target("getrandom", ["lib"], "/Users/lovepreetsingh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.16/src/lib.rs", Edition2018) }
+   0.038622750s  INFO prepare_target{force=false package_id=getrandom v0.2.16 target="getrandom"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDependency { name: "cfg_if", dep_mtime: FileTime { seconds: 1764509258, nanos: 915724720 }, max_mtime: FileTime { seconds: 1764509258, nanos: 852103584 } })
+   0.038880750s  INFO prepare_target{force=false package_id=serde v1.0.228 target="serde"}: cargo::core::compiler::fingerprint: fingerprint dirty for serde v1.0.228/Check { test: false }/TargetInner { ..: lib_target("serde", ["lib"], "/Users/lovepreetsingh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs", Edition2021) }
+   0.038885250s  INFO prepare_target{force=false package_id=serde v1.0.228 target="serde"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "serde_core" })
+   0.039246750s  INFO prepare_target{force=false package_id=serde_core v1.0.228 target="serde_core"}: cargo::core::compiler::fingerprint: fingerprint dirty for serde_core v1.0.228/Check { test: false }/TargetInner { ..: lib_target("serde_core", ["lib"], "/Users/lovepreetsingh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_core-1.0.228/src/lib.rs", Edition2021) }
+   0.039251167s  INFO prepare_target{force=false package_id=serde_core v1.0.228 target="serde_core"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDependency { name: "build_script_build", dep_mtime: FileTime { seconds: 1764509258, nanos: 961663668 }, max_mtime: FileTime { seconds: 1764509258, nanos: 828354873 } })
+   0.039637750s  INFO prepare_target{force=false package_id=num-integer v0.1.46 target="num_integer"}: cargo::core::compiler::fingerprint: fingerprint dirty for num-integer v0.1.46/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("num_integer", ["lib"], "/Users/lovepreetsingh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/num-integer-0.1.46/src/lib.rs", Edition2018) }
+   0.039642709s  INFO prepare_target{force=false package_id=num-integer v0.1.46 target="num_integer"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "num_traits" })
+   0.039831625s  INFO prepare_target{force=false package_id=ndarray-linalg v0.18.0 target="ndarray_linalg"}: cargo::core::compiler::fingerprint: fingerprint dirty for ndarray-linalg v0.18.0/Check { test: false }/TargetInner { ..: lib_target("ndarray_linalg", ["lib"], "/Users/lovepreetsingh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ndarray-linalg-0.18.0/src/lib.rs", Edition2021) }
+   0.039836584s  INFO prepare_target{force=false package_id=ndarray-linalg v0.18.0 target="ndarray_linalg"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDependency { name: "katexit", dep_mtime: FileTime { seconds: 1764509285, nanos: 164456971 }, max_mtime: FileTime { seconds: 1764509258, nanos: 810745143 } })
+   0.040187292s  INFO prepare_target{force=false package_id=cauchy v0.4.0 target="cauchy"}: cargo::core::compiler::fingerprint: fingerprint dirty for cauchy v0.4.0/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("cauchy", ["lib"], "/Users/lovepreetsingh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cauchy-0.4.0/src/lib.rs", Edition2018) }
+   0.040192167s  INFO prepare_target{force=false package_id=cauchy v0.4.0 target="cauchy"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "num_traits" })
+   0.041050625s  INFO prepare_target{force=false package_id=lax v0.18.0 target="lax"}: cargo::core::compiler::fingerprint: fingerprint dirty for lax v0.18.0/Check { test: false }/TargetInner { ..: lib_target("lax", ["lib"], "/Users/lovepreetsingh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lax-0.18.0/src/lib.rs", Edition2021) }
+   0.041056375s  INFO prepare_target{force=false package_id=lax v0.18.0 target="lax"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDependency { name: "katexit", dep_mtime: FileTime { seconds: 1764509285, nanos: 164456971 }, max_mtime: FileTime { seconds: 1764509258, nanos: 780162901 } })
+   0.041333792s  INFO prepare_target{force=false package_id=lapack-sys v0.15.0 target="lapack_sys"}: cargo::core::compiler::fingerprint: fingerprint dirty for lapack-sys v0.15.0/Check { test: false }/TargetInner { ..: lib_target("lapack_sys", ["lib"], "/Users/lovepreetsingh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lapack-sys-0.15.0/src/lib.rs", Edition2021) }
+   0.041338667s  INFO prepare_target{force=false package_id=lapack-sys v0.15.0 target="lapack_sys"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "libc" })
+   0.041505500s  INFO prepare_target{force=false package_id=thiserror v2.0.17 target="thiserror"}: cargo::core::compiler::fingerprint: fingerprint dirty for thiserror v2.0.17/Check { test: false }/TargetInner { ..: lib_target("thiserror", ["lib"], "/Users/lovepreetsingh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.17/src/lib.rs", Edition2021) }
+   0.041509917s  INFO prepare_target{force=false package_id=thiserror v2.0.17 target="thiserror"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDependency { name: "build_script_build", dep_mtime: FileTime { seconds: 1764509258, nanos: 966028298 }, max_mtime: FileTime { seconds: 1764509258, nanos: 915249923 } })
+   0.041944875s  INFO prepare_target{force=false package_id=ml-with-systems v0.1.0 (/Users/lovepreetsingh/Desktop/furnace) target="ml-with-systems"}: cargo::core::compiler::fingerprint: fingerprint dirty for ml-with-systems v0.1.0 (/Users/lovepreetsingh/Desktop/furnace)/Check { test: true }/TargetInner { name: "ml-with-systems", doc: true, ..: with_path("/Users/lovepreetsingh/Desktop/furnace/src/main.rs", Edition2024) }
+   0.041949875s  INFO prepare_target{force=false package_id=ml-with-systems v0.1.0 (/Users/lovepreetsingh/Desktop/furnace) target="ml-with-systems"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "memmap2" })
+    Checking libc v0.2.177
+    Checking zerocopy v0.8.30
+    Checking serde_core v1.0.228
+    Checking num-traits v0.2.19
+    Checking matrixmultiply v0.3.10
+    Checking thiserror v2.0.17
+    Checking getrandom v0.2.16
+    Checking cblas-sys v0.1.4
+    Checking lapack-sys v0.15.0
+    Checking memmap2 v0.9.9
+    Checking approx v0.5.1
+    Checking num-integer v0.1.46
+    Checking rand_core v0.6.4
+    Checking ppv-lite86 v0.2.21
+    Checking rand_chacha v0.3.1
+    Checking serde v1.0.228
+    Checking rand v0.8.5
+    Checking num-complex v0.4.6
+    Checking cauchy v0.4.0
+    Checking ndarray v0.17.1
+    Checking lax v0.18.0
+    Checking ndarray-linalg v0.18.0
+    Checking ml-with-systems v0.1.0 (/Users/lovepreetsingh/Desktop/furnace)
+error: could not compile `ml-with-systems` (bin "ml-with-systems") due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
