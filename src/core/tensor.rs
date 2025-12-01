@@ -85,7 +85,7 @@ impl Tensor {
         Tensor::new(&data, &self.size)
     }
     
-    pub fn matmul(&self, other: &Tensor) -> Tensor {
+    pub fn matmul(&self, other: &Tensor) -> Tensor { // need to optimize this for SIMD and CPU cache optimizations
 
         assert_eq!(self.size[1], other.size[0], "Matrix dimensions must match");
         let mut result = vec![0.0; self.size[0] * other.size[1]];

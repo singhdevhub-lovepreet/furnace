@@ -45,6 +45,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
+name = "furnace"
+version = "0.1.0"
+dependencies = [
+ "memmap2",
+ "ndarray",
+ "ndarray-linalg",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -111,15 +120,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "744133e4a0e0a658e1374cf3bf8e415c4052a15a111acd372764c55b4177d490"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "ml-with-systems"
-version = "0.1.0"
-dependencies = [
- "memmap2",
- "ndarray",
- "ndarray-linalg",
 ]
 
 [[package]]
