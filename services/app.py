@@ -13,16 +13,24 @@ from services.config import Settings
 from services.db.session import build_engine, build_sessionmaker, create_all
 from services.github.client import GitHubAppClient
 from services.github.service import GitHubCloner, GitHubService, NoopCloner, RepoCloner
+from services.llm.router import ModelRouter
 from services.scheduler.provisioner.base import MacProvisioner
 from services.scheduler.provisioner.fake import FakeProvisioner
 from services.sessions.orchestrator import SessionOrchestrator
 from services.sessions.pubsub import SessionEventHub
+from services.vault.key_vault import KeyVault
 
 
 def build_provisioner(settings: Settings) -> MacProvisioner:
     if settings.provisioner == "fake":
         return FakeProvisioner(queue_acquire=settings.fake_queue_acquire)
     raise NotImplementedError(f"unknown provisioner {settings.provisioner!r}")
+
+
+def build_key_vault(settings: Settings) -> KeyVault | None:
+    if settings.master_encryption_key is None:
+        return None
+    return KeyVault.from_base64_key(settings.master_encryption_key)
 
 
 def build_github_service(
@@ -52,6 +60,17 @@ def build_github_service(
     return service, github_http_client
 
 
+def build_model_router(
+    settings: Settings,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    key_vault: KeyVault | None,
+) -> ModelRouter | None:
+    if key_vault is None:
+        return None
+    _ = settings
+    return ModelRouter(sessionmaker=sessionmaker, key_vault=key_vault)
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     app_settings = settings or Settings()
 
@@ -67,6 +86,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             sessionmaker,
             github_http_client,
         )
+        key_vault = build_key_vault(app_settings)
+        model_router = build_model_router(app_settings, sessionmaker, key_vault)
         repo_cloner: RepoCloner = NoopCloner()
         if github_service is not None:
             repo_cloner = GitHubCloner(github=github_service, provisioner=provisioner)
@@ -86,6 +107,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.provisioner = provisioner
         app.state.event_hub = event_hub
         app.state.github_service = github_service
+        app.state.key_vault = key_vault
+        app.state.model_router = model_router
         app.state.orchestrator = orchestrator
 
         if app_settings.auto_create_schema:

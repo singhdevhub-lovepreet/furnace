@@ -5,26 +5,12 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from services.llm.policy import ModelCatalog, ModelPolicy, ProviderName
 from services.sessions.state_machine import SessionStatus
 
 
 class ApiModel(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
-
-
-class ModelPolicy(ApiModel):
-    planner: str | None = None
-    coder: str | None = None
-    summarizer: str | None = None
-
-    @field_validator("planner", "coder", "summarizer")
-    @classmethod
-    def _non_empty(cls, value: str | None) -> str | None:
-        if value is None:
-            return value
-        if not value.strip():
-            raise ValueError("must not be empty")
-        return value
 
 
 class CreateSessionRequest(ApiModel):
@@ -76,3 +62,31 @@ class RepoOut(ApiModel):
     installation_id: UUID
     full_name: str
     default_branch: str
+
+
+class LlmKeyCreateRequest(ApiModel):
+    provider: ProviderName
+    label: str
+    key: str
+
+    @field_validator("label", "key")
+    @classmethod
+    def _non_empty(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+
+class LlmKeyOut(ApiModel):
+    id: UUID
+    provider: ProviderName
+    label: str
+    created_at: datetime
+
+
+class LlmKeyListOut(ApiModel):
+    items: list[LlmKeyOut]
+
+
+class ModelCatalogOut(ApiModel):
+    catalog: ModelCatalog
