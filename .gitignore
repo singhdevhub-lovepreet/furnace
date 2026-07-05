@@ -9,7 +9,15 @@ DerivedData/
 # Environment and secrets
 .env
 .env.*
+!.env.example
 *.local
+*.db
+*.sqlite
+*.sqlite3
+*.pyc
+__pycache__/
+.mypy_cache/
+.ruff_cache/
 
 # Logs
 *.log
