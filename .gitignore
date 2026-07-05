@@ -1,27 +1,10 @@
-# Rust build artifacts
-/target/
-debug/
-*.pdb
+# Build artifacts
+artifacts/
+DerivedData/
+.build/
 
-# IDE and editor files
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
-.project
-.classpath
-.settings/
-
-# OS-specific files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-Thumbs.db
-ehthumbs.db
-Desktop.ini
+# XcodeGen-generated projects (regenerated via `xcodegen generate`)
+*.xcodeproj
 
 # Environment and secrets
 .env
@@ -32,18 +15,8 @@ Desktop.ini
 *.log
 logs/
 
-# Profiling and debugging
-*.profraw
-perf.data
-perf.data.old
-flamegraph.svg
-callgrind.out.*
-
-# Backup files
-*.bak
-*.backup
-*.orig
-
-# Generated documentation (uncomment if you don't want to track docs)
-# /doc/
-
+# OS/editor files
+.DS_Store
+.idea/
+.vscode/
+*.swp
