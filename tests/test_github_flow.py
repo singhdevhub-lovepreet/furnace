@@ -27,6 +27,7 @@ from services.db.models import Session as SessionRow
 from services.db.session import build_engine, build_sessionmaker, create_all
 from services.github.client import GitHubAppClient
 from services.github.service import GitHubCloner, GitHubService, NoopCloner
+from services.scheduler.pool import PoolController
 from services.scheduler.provisioner.base import SessionSpec
 from services.scheduler.provisioner.fake import FakeProvisioner
 from services.sessions.orchestrator import SessionOrchestrator
@@ -70,17 +71,25 @@ async def github_app(tmp_path: Path) -> AsyncGenerator[FastAPI, None]:
     app = FastAPI()
     engine = build_engine(settings.database_url)
     sessionmaker = build_sessionmaker(engine)
-    provisioner = FakeProvisioner()
+    provisioner = FakeProvisioner(max_slots=4)
+    pool_controller = PoolController(
+        provisioner=provisioner,
+        capacity_override=4,
+        estimated_session_seconds=30,
+        scale_up_threshold=1,
+    )
     event_hub = SessionEventHub()
     app.state.settings = settings
     app.state.engine = engine
     app.state.sessionmaker = sessionmaker
     app.state.provisioner = provisioner
+    app.state.pool_controller = pool_controller
     app.state.event_hub = event_hub
     app.state.github_service = None
     app.state.orchestrator = SessionOrchestrator(
         sessionmaker=sessionmaker,
         provisioner=provisioner,
+        pool_controller=pool_controller,
         hub=event_hub,
         artifacts_dir=tmp_path / "artifacts",
         repo_cloner=NoopCloner(),
@@ -424,9 +433,16 @@ async def test_github_cloner_uses_token_without_persisting_to_events(github_app:
         assert fake_provisioner.put_files[0][2].decode("utf-8") == token_value
         assert token_value not in fake_provisioner.exec_calls[0][2][1]
 
+        pool_controller = PoolController(
+            provisioner=fake_provisioner,
+            capacity_override=4,
+            estimated_session_seconds=30,
+            scale_up_threshold=1,
+        )
         orchestrator = SessionOrchestrator(
             sessionmaker=sessionmaker,
             provisioner=fake_provisioner,
+            pool_controller=pool_controller,
             hub=SessionEventHub(),
             artifacts_dir=Path(github_app.state.settings.artifacts_dir),
             repo_cloner=cloner,

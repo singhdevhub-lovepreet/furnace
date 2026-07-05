@@ -14,8 +14,8 @@ from sqlalchemy.orm import selectinload
 from services.db.models import Artifact, Event, Repo, UsageRecord
 from services.db.models import Session as SessionRow
 from services.github.service import NoopCloner, RepoCloner
+from services.scheduler.pool import PoolController
 from services.scheduler.provisioner.base import (
-    AcquisitionState,
     MacProvisioner,
     SessionHandle,
     SessionSpec,
@@ -39,6 +39,7 @@ class SessionRuntime:
 class SessionOrchestrator:
     sessionmaker: async_sessionmaker[AsyncSession]
     provisioner: MacProvisioner
+    pool_controller: PoolController
     hub: SessionEventHub
     artifacts_dir: Path
     repo_cloner: RepoCloner = field(default_factory=NoopCloner)
@@ -61,8 +62,6 @@ class SessionOrchestrator:
     async def cancel(self, session_id: UUID) -> None:
         runtime = self.runtimes.setdefault(session_id, SessionRuntime())
         runtime.cancel_event.set()
-        if runtime.handle is not None:
-            await self.provisioner.release(runtime.handle)
         if runtime.task is not None:
             runtime.task.cancel()
 
@@ -168,16 +167,20 @@ class SessionOrchestrator:
                 "status_changed",
                 {"status": SessionStatus.PROVISIONING.value},
             )
-            outcome = await self.provisioner.acquire(spec)
-            runtime.handle = outcome.handle
-            if outcome.state == AcquisitionState.QUEUED:
+
+            async def on_queued(eta_seconds: int, position: int) -> None:
+                _ = position
                 await self._append_event(
                     session_id,
                     "provisioner_queued",
-                    {"eta_seconds": outcome.eta_seconds},
+                    {"eta_seconds": eta_seconds},
                 )
-                if runtime.cancel_event.is_set():
-                    return
+
+            runtime.handle = await self.pool_controller.acquire(
+                session_id,
+                spec,
+                on_queued=on_queued,
+            )
             await asyncio.sleep(self.step_delay_seconds)
             if runtime.cancel_event.is_set():
                 return
@@ -275,4 +278,4 @@ class SessionOrchestrator:
                 pass
         finally:
             if runtime.handle is not None:
-                await self.provisioner.release(runtime.handle)
+                await self.pool_controller.release(session_id, runtime.handle)

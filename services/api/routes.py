@@ -19,6 +19,7 @@ from services.api.schemas import (
     EventOut,
     LlmKeyCreateRequest,
     LlmKeyOut,
+    PoolStatusOut,
     RepoOut,
     SessionOut,
     UsageOut,
@@ -38,6 +39,7 @@ from services.db.models import (
 from services.github.service import GitHubService
 from services.llm.policy import MODEL_CATALOG, ModelCatalog
 from services.llm.router import ModelRouter
+from services.scheduler.pool import PoolController
 from services.sessions.orchestrator import SessionOrchestrator
 from services.sessions.state_machine import SessionStatus
 from services.vault.key_vault import KeyVault
@@ -76,6 +78,13 @@ def _get_model_router(request: Request) -> ModelRouter:
     if model_router is None:
         raise HTTPException(status_code=500, detail="Model router is not configured")
     return model_router
+
+
+def _get_pool_controller(request: Request) -> PoolController:
+    pool_controller: PoolController | None = request.app.state.pool_controller
+    if pool_controller is None:
+        raise HTTPException(status_code=500, detail="Pool controller is not configured")
+    return pool_controller
 
 
 def _install_state(request: Request) -> str:
@@ -279,6 +288,12 @@ def build_router() -> APIRouter:
     @router.get("/models", response_model=ModelCatalog)
     async def list_models() -> ModelCatalog:
         return MODEL_CATALOG
+
+    @router.get("/pool", response_model=PoolStatusOut)
+    async def pool_status(request: Request) -> PoolStatusOut:
+        pool_controller = _get_pool_controller(request)
+        snapshot = await pool_controller.snapshot()
+        return PoolStatusOut.model_validate(snapshot, from_attributes=True)
 
     return router
 
