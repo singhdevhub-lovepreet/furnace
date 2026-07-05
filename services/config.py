@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     session_step_delay_seconds: float = Field(default=0.05, ge=0.0)
     fake_queue_acquire: bool = Field(default=False)
     auto_create_schema: bool = Field(default=True)
+    master_encryption_key: str | None = Field(default=None)
     github_app_id: str | None = Field(default=None)
     github_app_slug: str | None = Field(default=None)
     github_app_private_key: str | None = Field(default=None)

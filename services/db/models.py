@@ -55,8 +55,11 @@ class LlmKey(Base):
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     provider: Mapped[str] = mapped_column(Text, nullable=False)
-    enc_key: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     label: Mapped[str] = mapped_column(Text, nullable=False)
+    enc_key: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
 
     user: Mapped[User] = relationship(back_populates="llm_keys")
 

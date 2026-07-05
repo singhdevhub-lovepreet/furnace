@@ -10,7 +10,6 @@ from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response, WebSocket
-from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +17,8 @@ from services.api.schemas import (
     ArtifactOut,
     CreateSessionRequest,
     EventOut,
+    LlmKeyCreateRequest,
+    LlmKeyOut,
     RepoOut,
     SessionOut,
     UsageOut,
@@ -26,15 +27,20 @@ from services.db.models import (
     Artifact,
     Event,
     GithubInstallation,
+    LlmKey,
     Repo,
     UsageRecord,
+    User,
 )
 from services.db.models import (
     Session as SessionRow,
 )
 from services.github.service import GitHubService
+from services.llm.policy import MODEL_CATALOG, ModelCatalog
+from services.llm.router import ModelRouter
 from services.sessions.orchestrator import SessionOrchestrator
 from services.sessions.state_machine import SessionStatus
+from services.vault.key_vault import KeyVault
 
 
 async def get_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]:
@@ -43,11 +49,33 @@ async def get_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]
         yield db
 
 
+async def _resolve_user_id(db: AsyncSession) -> UUID:
+    result = await db.execute(select(User.id).order_by(User.created_at).limit(1))
+    user_id = result.scalar_one_or_none()
+    if user_id is None:
+        raise HTTPException(status_code=404, detail="no user exists")
+    return user_id
+
+
 def _get_github_service(request: Request) -> GitHubService:
     github_service: GitHubService | None = request.app.state.github_service
     if github_service is None:
         raise HTTPException(status_code=500, detail="GitHub service is not configured")
     return github_service
+
+
+def _get_key_vault(request: Request) -> KeyVault:
+    key_vault: KeyVault | None = request.app.state.key_vault
+    if key_vault is None:
+        raise HTTPException(status_code=500, detail="Key vault is not configured")
+    return key_vault
+
+
+def _get_model_router(request: Request) -> ModelRouter:
+    model_router: ModelRouter | None = request.app.state.model_router
+    if model_router is None:
+        raise HTTPException(status_code=500, detail="Model router is not configured")
+    return model_router
 
 
 def _install_state(request: Request) -> str:
@@ -83,7 +111,7 @@ def build_router() -> APIRouter:
             prompt=payload.prompt,
             status=SessionStatus.QUEUED.value,
             branch=repo.default_branch,
-            model_policy=payload.model_policy.model_dump(),
+            model_policy=payload.model_policy.model_dump(mode="json"),
         )
         db.add(session)
         await db.commit()
@@ -165,7 +193,7 @@ def build_router() -> APIRouter:
         )
 
     @router.get("/github/install-url")
-    async def github_install_url(request: Request) -> JSONResponse:
+    async def github_install_url(request: Request) -> dict[str, str]:
         state = _install_state(request)
         github_service = request.app.state.github_service
         if github_service is None:
@@ -175,7 +203,7 @@ def build_router() -> APIRouter:
             url = f"https://github.com/apps/{slug}/installations/new?state={quote(state)}"
         else:
             url = github_service.build_install_url(state)
-        return JSONResponse({"url": url})
+        return {"url": url}
 
     @router.post("/webhooks/github")
     async def github_webhook(request: Request) -> Response:
@@ -202,9 +230,55 @@ def build_router() -> APIRouter:
         repos = result.scalars().all()
         return [RepoOut.model_validate(repo, from_attributes=True) for repo in repos]
 
-    @router.get("/keys")
-    async def keys_stub() -> JSONResponse:
-        return JSONResponse({"detail": "not implemented in this milestone"}, status_code=501)
+    @router.get("/keys", response_model=list[LlmKeyOut])
+    async def list_keys(
+        request: Request,
+        db: Annotated[AsyncSession, Depends(get_db_session)],
+    ) -> list[LlmKeyOut]:
+        user_id = await _resolve_user_id(db)
+        result = await db.execute(
+            select(LlmKey).where(LlmKey.user_id == user_id).order_by(LlmKey.created_at)
+        )
+        keys = result.scalars().all()
+        return [LlmKeyOut.model_validate(row, from_attributes=True) for row in keys]
+
+    @router.post("/keys", response_model=LlmKeyOut)
+    async def create_key(
+        request: Request,
+        payload: LlmKeyCreateRequest,
+        db: Annotated[AsyncSession, Depends(get_db_session)],
+    ) -> LlmKeyOut:
+        key_vault = _get_key_vault(request)
+        user_id = await _resolve_user_id(db)
+        encrypted = key_vault.encrypt(payload.key)
+        key_row = LlmKey(
+            user_id=user_id,
+            provider=payload.provider.value,
+            label=payload.label,
+            enc_key=encrypted,
+        )
+        db.add(key_row)
+        await db.commit()
+        await db.refresh(key_row)
+        return LlmKeyOut.model_validate(key_row, from_attributes=True)
+
+    @router.delete("/keys/{key_id}", status_code=204)
+    async def delete_key(
+        request: Request,
+        key_id: UUID,
+        db: Annotated[AsyncSession, Depends(get_db_session)],
+    ) -> Response:
+        user_id = await _resolve_user_id(db)
+        key_row = await db.get(LlmKey, key_id)
+        if key_row is None or key_row.user_id != user_id:
+            raise HTTPException(status_code=404, detail="key not found")
+        await db.delete(key_row)
+        await db.commit()
+        return Response(status_code=204)
+
+    @router.get("/models", response_model=ModelCatalog)
+    async def list_models() -> ModelCatalog:
+        return MODEL_CATALOG
 
     return router
 

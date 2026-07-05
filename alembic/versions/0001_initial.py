@@ -49,8 +49,9 @@ def upgrade() -> None:
         sa.Column("id", sa.Uuid(as_uuid=True), primary_key=True, nullable=False),
         sa.Column("user_id", sa.Uuid(as_uuid=True), sa.ForeignKey("users.id"), nullable=False),
         sa.Column("provider", sa.Text(), nullable=False),
-        sa.Column("enc_key", sa.LargeBinary(), nullable=False),
         sa.Column("label", sa.Text(), nullable=False),
+        sa.Column("enc_key", sa.LargeBinary(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )
     op.create_table(
         "sessions",

@@ -19,6 +19,9 @@ services/github/__init__.py
 services/github/client.py
 services/github/service.py
 services/github/webhooks.py
+services/llm/__init__.py
+services/llm/policy.py
+services/llm/router.py
 services/scheduler/__init__.py
 services/scheduler/provisioner/__init__.py
 services/scheduler/provisioner/base.py
@@ -30,6 +33,9 @@ services/sessions/__init__.py
 services/sessions/orchestrator.py
 services/sessions/pubsub.py
 services/sessions/state_machine.py
+services/vault/__init__.py
+services/vault/key_vault.py
+tests/test_byok_router.py
 tests/test_end_to_end.py
 tests/test_fake_provisioner.py
 tests/test_github_flow.py
