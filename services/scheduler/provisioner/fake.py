@@ -42,6 +42,9 @@ class FakeProvisioner(MacProvisioner):
     queued_eta_seconds: int = 120
     provider_name: str = "fake"
     release_calls: list[SessionHandle] = field(default_factory=list)
+    exec_calls: list[tuple[SessionHandle, str, list[str], dict[str, str], int]] = field(
+        default_factory=list
+    )
     put_files: list[tuple[SessionHandle, str, bytes]] = field(default_factory=list)
     _handles: dict[UUID, SessionHandle] = field(default_factory=dict)
     _states: dict[UUID, ProvisionerSessionStatus] = field(default_factory=dict)
@@ -80,7 +83,7 @@ class FakeProvisioner(MacProvisioner):
         env: dict[str, str],
         timeout_seconds: int,
     ) -> tuple[int, str, str]:
-        _ = (handle, command, argv, env, timeout_seconds)
+        self.exec_calls.append((handle, command, argv, env, timeout_seconds))
         return 0, "ok", ""
 
     async def open_channel(self, handle: SessionHandle, kind: ChannelKind) -> Channel:

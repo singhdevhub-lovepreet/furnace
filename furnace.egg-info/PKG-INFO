@@ -1,0 +1,20 @@
+Metadata-Version: 2.4
+Name: furnace
+Version: 0.1.0
+Summary: Raven control-plane skeleton
+Requires-Python: >=3.12
+Requires-Dist: fastapi>=0.115
+Requires-Dist: uvicorn[standard]>=0.30
+Requires-Dist: sqlalchemy>=2.0
+Requires-Dist: aiosqlite>=0.20
+Requires-Dist: alembic>=1.13
+Requires-Dist: pydantic>=2.7
+Requires-Dist: pydantic-settings>=2.3
+Requires-Dist: httpx>=0.27
+Requires-Dist: pyjwt>=2.9
+Requires-Dist: cryptography>=43
+Provides-Extra: dev
+Requires-Dist: pytest>=8.2; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.23; extra == "dev"
+Requires-Dist: ruff>=0.5; extra == "dev"
+Requires-Dist: mypy>=1.10; extra == "dev"

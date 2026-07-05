@@ -13,3 +13,8 @@ class Settings(BaseSettings):
     session_step_delay_seconds: float = Field(default=0.05, ge=0.0)
     fake_queue_acquire: bool = Field(default=False)
     auto_create_schema: bool = Field(default=True)
+    github_app_id: str | None = Field(default=None)
+    github_app_slug: str | None = Field(default=None)
+    github_app_private_key: str | None = Field(default=None)
+    github_webhook_secret: str | None = Field(default=None)
+    github_api_base: str = Field(default="https://api.github.com")
