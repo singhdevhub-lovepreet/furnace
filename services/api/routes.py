@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import hmac
+import mimetypes
 import secrets
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from hashlib import sha256
+from pathlib import Path
 from typing import Annotated
 from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response, WebSocket
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -98,6 +101,15 @@ def _install_state(request: Request) -> str:
     return f"{nonce}.{digest}"
 
 
+def _artifact_media_type(artifact: Artifact) -> str:
+    if artifact.kind == "screenshot":
+        return "image/png"
+    if artifact.kind == "video":
+        return "video/mp4"
+    guessed, _ = mimetypes.guess_type(artifact.object_key)
+    return guessed or "application/octet-stream"
+
+
 def build_router() -> APIRouter:
     router = APIRouter(prefix="/v1")
 
@@ -138,6 +150,16 @@ def build_router() -> APIRouter:
         if session is None:
             raise HTTPException(status_code=404, detail="session not found")
         return SessionOut.model_validate(session, from_attributes=True)
+
+    @router.get("/sessions", response_model=list[SessionOut])
+    async def list_sessions(
+        db: Annotated[AsyncSession, Depends(get_db_session)],
+    ) -> list[SessionOut]:
+        result = await db.execute(
+            select(SessionRow).order_by(SessionRow.created_at.desc(), SessionRow.id.desc())
+        )
+        sessions = result.scalars().all()
+        return [SessionOut.model_validate(row, from_attributes=True) for row in sessions]
 
     @router.post("/sessions/{session_id}/cancel", response_model=SessionOut)
     async def cancel_session(
@@ -183,6 +205,24 @@ def build_router() -> APIRouter:
         return [
             ArtifactOut.model_validate(row, from_attributes=True) for row in result.scalars().all()
         ]
+
+    @router.get("/sessions/{session_id}/artifacts/{artifact_id}/content")
+    async def get_artifact_content(
+        session_id: UUID,
+        artifact_id: UUID,
+        db: Annotated[AsyncSession, Depends(get_db_session)],
+    ) -> FileResponse:
+        artifact = await db.get(Artifact, artifact_id)
+        if artifact is None or artifact.session_id != session_id:
+            raise HTTPException(status_code=404, detail="artifact not found")
+        path = Path(artifact.object_key)
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="artifact file not found")
+        return FileResponse(
+            path,
+            media_type=_artifact_media_type(artifact),
+            filename=path.name,
+        )
 
     @router.get("/sessions/{session_id}/usage", response_model=UsageOut)
     async def get_usage(
