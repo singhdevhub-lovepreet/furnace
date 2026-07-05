@@ -69,3 +69,10 @@ class UsageOut(ApiModel):
     prompt_tokens: int
     completion_tokens: int
     mac_cost_usd: str
+
+
+class RepoOut(ApiModel):
+    id: UUID
+    installation_id: UUID
+    full_name: str
+    default_branch: str

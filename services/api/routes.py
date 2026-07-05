@@ -1,17 +1,27 @@
 from __future__ import annotations
 
-import asyncio
+import hmac
+import secrets
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
+from hashlib import sha256
 from typing import Annotated
+from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, WebSocket
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response, WebSocket
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from services.api.schemas import ArtifactOut, CreateSessionRequest, EventOut, SessionOut, UsageOut
+from services.api.schemas import (
+    ArtifactOut,
+    CreateSessionRequest,
+    EventOut,
+    RepoOut,
+    SessionOut,
+    UsageOut,
+)
 from services.db.models import (
     Artifact,
     Event,
@@ -22,6 +32,7 @@ from services.db.models import (
 from services.db.models import (
     Session as SessionRow,
 )
+from services.github.service import GitHubService
 from services.sessions.orchestrator import SessionOrchestrator
 from services.sessions.state_machine import SessionStatus
 
@@ -30,6 +41,24 @@ async def get_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]
     async_sessionmaker_factory = request.app.state.sessionmaker
     async with async_sessionmaker_factory() as db:
         yield db
+
+
+def _get_github_service(request: Request) -> GitHubService:
+    github_service: GitHubService | None = request.app.state.github_service
+    if github_service is None:
+        raise HTTPException(status_code=500, detail="GitHub service is not configured")
+    return github_service
+
+
+def _install_state(request: Request) -> str:
+    settings = request.app.state.settings
+    secret = settings.github_webhook_secret or settings.github_app_private_key
+    if secret is None:
+        raise HTTPException(status_code=500, detail="GitHub install state secret is not configured")
+    nonce = secrets.token_urlsafe(32)
+    digest = hmac.new(secret.encode("utf-8"), nonce.encode("utf-8"), sha256).hexdigest()
+    # Binding install state to a user is a later auth milestone.
+    return f"{nonce}.{digest}"
 
 
 def build_router() -> APIRouter:
@@ -89,7 +118,8 @@ def build_router() -> APIRouter:
                 SessionStatus.RUNNING,
             }:
                 raise HTTPException(
-                    status_code=409, detail=f"session is not cancellable from {session.status}"
+                    status_code=409,
+                    detail=f"session is not cancellable from {session.status}",
                 )
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -134,20 +164,46 @@ def build_router() -> APIRouter:
             mac_cost_usd=str(usage.mac_cost_usd),
         )
 
-    @router.get("/keys")
-    async def keys_stub() -> JSONResponse:
-        return JSONResponse({"detail": "not implemented in this milestone"}, status_code=501)
-
     @router.get("/github/install-url")
-    async def github_install_url_stub() -> JSONResponse:
-        return JSONResponse({"detail": "not implemented in this milestone"}, status_code=501)
-
-    @router.get("/repos")
-    async def repos_stub() -> JSONResponse:
-        return JSONResponse({"detail": "not implemented in this milestone"}, status_code=501)
+    async def github_install_url(request: Request) -> JSONResponse:
+        state = _install_state(request)
+        github_service = request.app.state.github_service
+        if github_service is None:
+            slug = request.app.state.settings.github_app_slug
+            if slug is None:
+                raise HTTPException(status_code=500, detail="GitHub app slug is not configured")
+            url = f"https://github.com/apps/{slug}/installations/new?state={quote(state)}"
+        else:
+            url = github_service.build_install_url(state)
+        return JSONResponse({"url": url})
 
     @router.post("/webhooks/github")
-    async def github_webhook_stub() -> JSONResponse:
+    async def github_webhook(request: Request) -> Response:
+        github_service = _get_github_service(request)
+        body = await request.body()
+        signature_header = request.headers.get("X-Hub-Signature-256")
+        if not github_service.verify_webhook(body, signature_header):
+            raise HTTPException(status_code=401, detail="invalid GitHub webhook signature")
+        event_name = request.headers.get("X-GitHub-Event")
+        if event_name is None:
+            raise HTTPException(status_code=400, detail="missing X-GitHub-Event header")
+        await github_service.handle_webhook(event_name, body)
+        return Response(status_code=204)
+
+    @router.get("/repos", response_model=list[RepoOut])
+    async def list_repos(
+        db: Annotated[AsyncSession, Depends(get_db_session)],
+        installation_id: UUID | None = None,
+    ) -> list[RepoOut]:
+        statement = select(Repo)
+        if installation_id is not None:
+            statement = statement.where(Repo.installation_id == installation_id)
+        result = await db.execute(statement)
+        repos = result.scalars().all()
+        return [RepoOut.model_validate(repo, from_attributes=True) for repo in repos]
+
+    @router.get("/keys")
+    async def keys_stub() -> JSONResponse:
         return JSONResponse({"detail": "not implemented in this milestone"}, status_code=501)
 
     return router
@@ -167,7 +223,7 @@ def install_websocket_routes(app: FastAPI) -> None:
                 await websocket.send_json(
                     EventOut.model_validate(event, from_attributes=True).model_dump(mode="json")
                 )
-        queue: asyncio.Queue[Event] = hub.subscribe(session_id)
+        queue = hub.subscribe(session_id)
         try:
             while True:
                 event = await queue.get()

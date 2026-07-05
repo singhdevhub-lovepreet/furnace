@@ -7,10 +7,13 @@ from decimal import Decimal
 from pathlib import Path
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.orm import selectinload
 
-from services.db.models import Artifact, Event, UsageRecord
+from services.db.models import Artifact, Event, Repo, UsageRecord
 from services.db.models import Session as SessionRow
+from services.github.service import NoopCloner, RepoCloner
 from services.scheduler.provisioner.base import (
     AcquisitionState,
     MacProvisioner,
@@ -38,6 +41,7 @@ class SessionOrchestrator:
     provisioner: MacProvisioner
     hub: SessionEventHub
     artifacts_dir: Path
+    repo_cloner: RepoCloner = field(default_factory=NoopCloner)
     state_machine: SessionStateMachine = field(default_factory=SessionStateMachine)
     step_delay_seconds: float = 0.05
     runtimes: dict[UUID, SessionRuntime] = field(default_factory=dict)
@@ -104,7 +108,11 @@ class SessionOrchestrator:
             await db.commit()
 
     async def _create_artifact(
-        self, session_id: UUID, kind: str, object_key: str, meta: dict[str, object]
+        self,
+        session_id: UUID,
+        kind: str,
+        object_key: str,
+        meta: dict[str, object],
     ) -> None:
         async with self.sessionmaker() as db:
             db.add(Artifact(session_id=session_id, kind=kind, object_key=object_key, meta=meta))
@@ -123,12 +131,23 @@ class SessionOrchestrator:
             )
             await db.commit()
 
+    async def _load_session_and_repo(self, session_id: UUID) -> tuple[SessionRow, Repo]:
+        async with self.sessionmaker() as db:
+            result = await db.execute(
+                select(SessionRow)
+                .options(selectinload(SessionRow.repo).selectinload(Repo.installation))
+                .where(SessionRow.id == session_id)
+            )
+            session_row = result.scalar_one_or_none()
+            if session_row is None:
+                raise LookupError(f"session {session_id} not found")
+            repo = session_row.repo
+            return session_row, repo
+
     async def _run(self, session_id: UUID, runtime: SessionRuntime) -> None:
         try:
-            async with self.sessionmaker() as db:
-                session_row = await db.get(SessionRow, session_id)
-                if session_row is None:
-                    raise LookupError(f"session {session_id} not found")
+            session_row, repo = await self._load_session_and_repo(session_id)
+            _ = session_row
             spec = SessionSpec(
                 image_id="sample-image",
                 cpu=4,
@@ -139,11 +158,15 @@ class SessionOrchestrator:
                 features_required=frozenset({"ARTIFACTS"}),
             )
             await self._append_event(
-                session_id, "session_started", {"status": SessionStatus.QUEUED.value}
+                session_id,
+                "session_started",
+                {"status": SessionStatus.QUEUED.value},
             )
             await self._set_status(session_id, SessionStatus.PROVISIONING)
             await self._append_event(
-                session_id, "status_changed", {"status": SessionStatus.PROVISIONING.value}
+                session_id,
+                "status_changed",
+                {"status": SessionStatus.PROVISIONING.value},
             )
             outcome = await self.provisioner.acquire(spec)
             runtime.handle = outcome.handle
@@ -160,44 +183,56 @@ class SessionOrchestrator:
                 return
             await self._set_status(session_id, SessionStatus.CLONING_REPO)
             await self._append_event(
-                session_id, "status_changed", {"status": SessionStatus.CLONING_REPO.value}
+                session_id,
+                "status_changed",
+                {"status": SessionStatus.CLONING_REPO.value},
             )
+            assert runtime.handle is not None
+            await self.repo_cloner.prepare(runtime.handle, repo)
             await asyncio.sleep(self.step_delay_seconds)
             if runtime.cancel_event.is_set():
                 return
             await self._set_status(session_id, SessionStatus.RUNNING)
             await self._append_event(
-                session_id, "status_changed", {"status": SessionStatus.RUNNING.value}
+                session_id,
+                "status_changed",
+                {"status": SessionStatus.RUNNING.value},
             )
             await asyncio.sleep(self.step_delay_seconds)
             if runtime.cancel_event.is_set():
                 return
             await self._set_status(session_id, SessionStatus.RECORDING)
             await self._append_event(
-                session_id, "status_changed", {"status": SessionStatus.RECORDING.value}
+                session_id,
+                "status_changed",
+                {"status": SessionStatus.RECORDING.value},
             )
             await asyncio.sleep(self.step_delay_seconds)
             if runtime.cancel_event.is_set():
                 return
             await self._set_status(session_id, SessionStatus.RUNNING)
             await self._append_event(
-                session_id, "status_changed", {"status": SessionStatus.RUNNING.value}
+                session_id,
+                "status_changed",
+                {"status": SessionStatus.RUNNING.value},
             )
             await asyncio.sleep(self.step_delay_seconds)
             if runtime.cancel_event.is_set():
                 return
             await self._set_status(session_id, SessionStatus.OPENING_PR)
             await self._append_event(
-                session_id, "status_changed", {"status": SessionStatus.OPENING_PR.value}
+                session_id,
+                "status_changed",
+                {"status": SessionStatus.OPENING_PR.value},
             )
 
             artifacts_dir = self.artifacts_dir / str(session_id)
             artifacts_dir.mkdir(parents=True, exist_ok=True)
             screenshot_path = artifacts_dir / "screenshot.png"
             video_path = artifacts_dir / "demo.mp4"
-            assert runtime.handle is not None
             screenshot_bytes = await self.provisioner.get_file(
-                runtime.handle, "artifacts/screenshot.png"
+                runtime.handle,
+                "artifacts/screenshot.png",
             )
             video_bytes = await self.provisioner.get_file(runtime.handle, "artifacts/demo.mp4")
             screenshot_path.write_bytes(screenshot_bytes)
@@ -216,7 +251,9 @@ class SessionOrchestrator:
             )
             await self._create_usage(session_id, mac_seconds=8)
             await self._append_event(
-                session_id, "status_changed", {"status": SessionStatus.SUCCEEDED.value}
+                session_id,
+                "status_changed",
+                {"status": SessionStatus.SUCCEEDED.value},
             )
             await self._set_status(
                 session_id,
