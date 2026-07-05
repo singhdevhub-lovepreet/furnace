@@ -14,6 +14,7 @@ from services.db.session import build_engine, build_sessionmaker, create_all
 from services.github.client import GitHubAppClient
 from services.github.service import GitHubCloner, GitHubService, NoopCloner, RepoCloner
 from services.llm.router import ModelRouter
+from services.scheduler.pool import PoolController
 from services.scheduler.provisioner.base import MacProvisioner
 from services.scheduler.provisioner.fake import FakeProvisioner
 from services.sessions.orchestrator import SessionOrchestrator
@@ -23,8 +24,24 @@ from services.vault.key_vault import KeyVault
 
 def build_provisioner(settings: Settings) -> MacProvisioner:
     if settings.provisioner == "fake":
-        return FakeProvisioner(queue_acquire=settings.fake_queue_acquire)
+        return FakeProvisioner(
+            queue_acquire=settings.fake_queue_acquire,
+            max_slots=settings.fake_max_slots,
+        )
     raise NotImplementedError(f"unknown provisioner {settings.provisioner!r}")
+
+
+def build_pool_controller(
+    settings: Settings,
+    provisioner: MacProvisioner,
+) -> PoolController:
+    _ = settings
+    return PoolController(
+        provisioner=provisioner,
+        capacity_override=settings.pool_capacity_override,
+        estimated_session_seconds=settings.pool_estimated_session_seconds,
+        scale_up_threshold=settings.pool_scale_up_threshold,
+    )
 
 
 def build_key_vault(settings: Settings) -> KeyVault | None:
@@ -79,6 +96,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine = build_engine(app_settings.database_url)
         sessionmaker = build_sessionmaker(engine)
         provisioner = build_provisioner(app_settings)
+        pool_controller = build_pool_controller(app_settings, provisioner)
         event_hub = SessionEventHub()
         github_http_client: httpx.AsyncClient | None = None
         github_service, github_http_client = build_github_service(
@@ -95,6 +113,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         orchestrator = SessionOrchestrator(
             sessionmaker=sessionmaker,
             provisioner=provisioner,
+            pool_controller=pool_controller,
             hub=event_hub,
             artifacts_dir=Path(app_settings.artifacts_dir),
             repo_cloner=repo_cloner,
@@ -105,12 +124,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.engine = engine
         app.state.sessionmaker = sessionmaker
         app.state.provisioner = provisioner
+        app.state.pool_controller = pool_controller
         app.state.event_hub = event_hub
         app.state.github_service = github_service
         app.state.key_vault = key_vault
         app.state.model_router = model_router
         app.state.orchestrator = orchestrator
 
+        await pool_controller.reconcile()
         if app_settings.auto_create_schema:
             await create_all(engine)
 

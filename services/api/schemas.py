@@ -64,6 +64,30 @@ class RepoOut(ApiModel):
     default_branch: str
 
 
+class PoolQueueItem(ApiModel):
+    session_id: UUID
+    position: int
+    eta_seconds: int
+
+
+class PoolScaleDecisionOut(ApiModel):
+    current_hosts: int
+    desired_hosts: int
+    scale_up_by: int
+    total_slots: int
+    free_slots: int
+    active_sessions: int
+    queued_sessions: int
+
+
+class PoolStatusOut(ApiModel):
+    active_sessions: int
+    capacity: int
+    queue_depth: int
+    queued: list[PoolQueueItem]
+    scale_decision: PoolScaleDecisionOut
+
+
 class LlmKeyCreateRequest(ApiModel):
     provider: ProviderName
     label: str

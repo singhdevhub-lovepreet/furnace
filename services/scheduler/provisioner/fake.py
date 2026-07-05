@@ -40,6 +40,7 @@ class FakeChannel:
 class FakeProvisioner(MacProvisioner):
     queue_acquire: bool = False
     queued_eta_seconds: int = 120
+    max_slots: int = 1
     provider_name: str = "fake"
     release_calls: list[SessionHandle] = field(default_factory=list)
     exec_calls: list[tuple[SessionHandle, str, list[str], dict[str, str], int]] = field(
@@ -48,6 +49,7 @@ class FakeProvisioner(MacProvisioner):
     put_files: list[tuple[SessionHandle, str, bytes]] = field(default_factory=list)
     _handles: dict[UUID, SessionHandle] = field(default_factory=dict)
     _states: dict[UUID, ProvisionerSessionStatus] = field(default_factory=dict)
+    _used_slots: int = 0
 
     async def acquire(self, spec: SessionSpec) -> AcquireOutcome:
         _ = spec
@@ -57,17 +59,20 @@ class FakeProvisioner(MacProvisioner):
             created_at=datetime.now(UTC),
             tool_endpoint="in-memory://fake",
         )
-        self._handles[handle.id] = handle
         if self.queue_acquire:
+            self._handles[handle.id] = handle
             self._states[handle.id] = ProvisionerSessionStatus.QUEUED
             return AcquireOutcome(AcquisitionState.QUEUED, handle, self.queued_eta_seconds)
+        self._handles[handle.id] = handle
         self._states[handle.id] = ProvisionerSessionStatus.READY
+        self._used_slots += 1
         return AcquireOutcome(AcquisitionState.READY, handle, None)
 
     async def release(self, handle: SessionHandle) -> None:
         self.release_calls.append(handle)
-        self._handles.pop(handle.id, None)
         self._states.pop(handle.id, None)
+        if self._handles.pop(handle.id, None) is not None:
+            self._used_slots = max(0, self._used_slots - 1)
 
     async def status(self, handle: SessionHandle) -> ProvisionerSessionStatus:
         state = self._states.get(handle.id)
@@ -114,13 +119,13 @@ class FakeProvisioner(MacProvisioner):
         )
 
     async def capacity(self) -> CapacityReport:
-        active = len(self._handles)
+        active = self._used_slots
         return CapacityReport(
-            free_slots=max(0, 1 - active),
-            total_slots=1,
-            warm_hosts=1,
+            free_slots=max(0, self.max_slots - active),
+            total_slots=self.max_slots,
+            warm_hosts=1 if self.max_slots > 0 else 0,
             provisioning_hosts=0,
-            est_new_slot_seconds=0,
+            est_new_slot_seconds=self.queued_eta_seconds,
         )
 
     async def reconcile(self) -> list[SessionHandle]:

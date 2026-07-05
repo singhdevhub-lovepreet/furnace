@@ -23,6 +23,7 @@ services/llm/__init__.py
 services/llm/policy.py
 services/llm/router.py
 services/scheduler/__init__.py
+services/scheduler/pool.py
 services/scheduler/provisioner/__init__.py
 services/scheduler/provisioner/base.py
 services/scheduler/provisioner/ec2_tart.py
@@ -39,4 +40,5 @@ tests/test_byok_router.py
 tests/test_end_to_end.py
 tests/test_fake_provisioner.py
 tests/test_github_flow.py
+tests/test_pool_controller.py
 tests/test_state_machine.py
