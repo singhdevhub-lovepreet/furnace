@@ -282,3 +282,12 @@ textarea {
   border: 1px solid var(--border);
   background: #000;
 }
+
+.auth-shell {
+  max-width: 520px;
+  margin: 3rem auto 0;
+}
+
+.auth-card {
+  padding: 1.5rem;
+}

@@ -1,3 +1,5 @@
+import { clearStoredAuthSession, getStoredAuthToken, type AuthUser } from '@/lib/auth'
+
 export type ProviderName = 'openrouter' | 'anthropic' | 'openai' | 'other'
 
 export type SessionStatus =
@@ -109,6 +111,21 @@ export interface LlmKeyOut {
   created_at: string
 }
 
+export interface AuthTokenResponse {
+  access_token: string
+  token_type: 'bearer'
+  user: AuthUser
+}
+
+export interface AuthLoginRequest {
+  email: string
+  password: string
+}
+
+export interface AuthSignupRequest extends AuthLoginRequest {
+  plan?: string
+}
+
 export interface ModelCatalogProvider {
   provider: ProviderName
   models: string[]
@@ -144,15 +161,65 @@ export function sessionArtifactContentUrl(sessionId: string, artifactId: string)
   return joinApiUrl(`/v1/sessions/${sessionId}/artifacts/${artifactId}/content`)
 }
 
-async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+function isBrowser(): boolean {
+  return typeof window !== 'undefined'
+}
+
+function redirectToLogin(): void {
+  if (!isBrowser()) {
+    return
+  }
+  window.location.replace('/login')
+}
+
+function unauthorizedError(message: string): Error {
+  return new Error(message || '401 unauthorized')
+}
+
+function handleUnauthorized(redirectOn401: boolean): never {
+  clearStoredAuthSession()
+  if (redirectOn401) {
+    redirectToLogin()
+  }
+  throw unauthorizedError('401 unauthorized')
+}
+
+function buildHeaders(headers: HeadersInit | undefined, withJsonContentType: boolean): Headers {
+  const requestHeaders = new Headers(headers)
+  if (withJsonContentType) {
+    requestHeaders.set('content-type', 'application/json')
+  }
+  if (isBrowser()) {
+    const token = getStoredAuthToken()
+    if (token) {
+      requestHeaders.set('Authorization', `Bearer ${token}`)
+    }
+  }
+  return requestHeaders
+}
+
+interface RequestOptions {
+  redirectOn401?: boolean
+}
+
+async function requestJson<T>(
+  path: string,
+  init?: RequestInit,
+  options: RequestOptions = {},
+): Promise<T> {
   const response = await fetch(joinApiUrl(path), {
     ...init,
-    headers: {
-      'content-type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
+    headers: buildHeaders(init?.headers, true),
     cache: 'no-store',
   })
+  if (response.status === 401) {
+    if (options.redirectOn401 ?? true) {
+      handleUnauthorized(true)
+    }
+    clearStoredAuthSession()
+    const message = await response.text()
+    throw unauthorizedError(message)
+  }
   if (!response.ok) {
     const message = await response.text()
     throw new Error(`${response.status} ${message || `request failed with ${response.status}`}`)
@@ -160,14 +227,24 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T
 }
 
-async function requestVoid(path: string, init?: RequestInit): Promise<void> {
+async function requestVoid(
+  path: string,
+  init?: RequestInit,
+  options: RequestOptions = {},
+): Promise<void> {
   const response = await fetch(joinApiUrl(path), {
     ...init,
-    headers: {
-      ...(init?.headers ?? {}),
-    },
+    headers: buildHeaders(init?.headers, false),
     cache: 'no-store',
   })
+  if (response.status === 401) {
+    if (options.redirectOn401 ?? true) {
+      handleUnauthorized(true)
+    }
+    clearStoredAuthSession()
+    const message = await response.text()
+    throw unauthorizedError(message)
+  }
   if (!response.ok) {
     const message = await response.text()
     throw new Error(`${response.status} ${message || `request failed with ${response.status}`}`)
@@ -233,6 +310,24 @@ export async function createKey(payload: LlmKeyCreateRequest): Promise<LlmKeyOut
 
 export async function deleteKey(keyId: string): Promise<void> {
   await requestVoid(`/v1/keys/${keyId}`, { method: 'DELETE' })
+}
+
+export async function signup(payload: AuthSignupRequest): Promise<AuthTokenResponse> {
+  return requestJson<AuthTokenResponse>('/v1/auth/signup', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }, { redirectOn401: false })
+}
+
+export async function login(payload: AuthLoginRequest): Promise<AuthTokenResponse> {
+  return requestJson<AuthTokenResponse>('/v1/auth/login', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }, { redirectOn401: false })
+}
+
+export async function getMe(options: RequestOptions = {}): Promise<AuthUser> {
+  return requestJson<AuthUser>('/v1/auth/me', undefined, options)
 }
 
 export function statusClassName(status: SessionStatus): string {

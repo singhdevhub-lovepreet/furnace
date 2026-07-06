@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 
+import { useAuth } from '@/components/AuthProvider'
 import { EventOut, getWsBase } from '@/lib/api'
 
 export function useSessionEvents(sessionId: string): {
@@ -9,15 +10,18 @@ export function useSessionEvents(sessionId: string): {
   connected: boolean
   error: string | null
 } {
+  const auth = useAuth()
   const [events, setEvents] = useState<EventOut[]>([])
   const [connected, setConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!sessionId) {
+    if (!sessionId || auth.status !== 'authenticated' || !auth.token) {
       return
     }
-    const socket = new WebSocket(`${getWsBase()}/ws/sessions/${sessionId}`)
+    const socket = new WebSocket(
+      `${getWsBase()}/ws/sessions/${sessionId}?token=${encodeURIComponent(auth.token)}`,
+    )
     socket.onopen = () => {
       setConnected(true)
       setError(null)
@@ -36,7 +40,7 @@ export function useSessionEvents(sessionId: string): {
     return () => {
       socket.close()
     }
-  }, [sessionId])
+  }, [auth.status, auth.token, sessionId])
 
   return { events, connected, error }
 }

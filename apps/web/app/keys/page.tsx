@@ -11,6 +11,7 @@ import {
   ModelCatalog,
   ProviderName,
 } from '@/lib/api'
+import { useAuth } from '@/components/AuthProvider'
 
 interface KeyFormState {
   provider: ProviderName
@@ -19,6 +20,7 @@ interface KeyFormState {
 }
 
 export default function KeysPage(): JSX.Element {
+  const auth = useAuth()
   const [keys, setKeys] = useState<LlmKeyOut[]>([])
   const [catalog, setCatalog] = useState<ModelCatalog | null>(null)
   const [form, setForm] = useState<KeyFormState>({ provider: 'openrouter', label: '', key: '' })
@@ -27,6 +29,9 @@ export default function KeysPage(): JSX.Element {
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
+    if (auth.status !== 'authenticated') {
+      return
+    }
     const load = async () => {
       try {
         setError(null)
@@ -41,7 +46,7 @@ export default function KeysPage(): JSX.Element {
     }
 
     void load()
-  }, [])
+  }, [auth.status])
 
   const providerOptions = catalog?.providers ?? []
 
@@ -69,6 +74,16 @@ export default function KeysPage(): JSX.Element {
     } catch (error_) {
       setError(error_ instanceof Error ? error_.message : 'failed to delete key')
     }
+  }
+
+  if (auth.status !== 'authenticated') {
+    return (
+      <main className="card-grid">
+        <section className="card">
+          <div className="muted">Loading account…</div>
+        </section>
+      </main>
+    )
   }
 
   return (
