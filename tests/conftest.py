@@ -28,6 +28,7 @@ async def client(
         artifacts_dir=str(temp_paths["artifacts"]),
         session_step_delay_seconds=0.02,
         auto_create_schema=True,
+        agent_runner="fake",
     )
     app = create_app(settings)
     async with app.router.lifespan_context(app):

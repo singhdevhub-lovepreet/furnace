@@ -45,6 +45,7 @@ async def test_app(tmp_path: Path) -> AsyncGenerator[FastAPI, None]:
         database_url=f"sqlite+aiosqlite:///{tmp_path / 'byok.db'}",
         artifacts_dir=str(tmp_path / "artifacts"),
         auto_create_schema=True,
+        agent_runner="fake",
         master_encryption_key=master_key_b64(),
     )
     app = create_app(settings)
