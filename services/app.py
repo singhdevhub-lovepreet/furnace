@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from services.agent.base import AgentRunner
 from services.agent.fake import FakeAgentRunner
+from services.agent.llm import LlmAgentRunner
 from services.api.routes import build_router, install_websocket_routes
 from services.config import Settings
 from services.db.session import build_engine, build_sessionmaker, create_all
@@ -91,9 +92,25 @@ def build_model_router(
     return ModelRouter(sessionmaker=sessionmaker, key_vault=key_vault)
 
 
-def build_agent_runner(settings: Settings) -> AgentRunner:
+def build_agent_runner(
+    settings: Settings,
+    model_router: ModelRouter | None,
+    provisioner: MacProvisioner,
+) -> AgentRunner:
     if settings.agent_runner == "fake":
         return FakeAgentRunner(step_delay_seconds=settings.session_step_delay_seconds)
+    if settings.agent_runner == "llm":
+        if model_router is None:
+            raise RuntimeError(
+                "FURNACE_AGENT_RUNNER=llm requires a ModelRouter; set "
+                "FURNACE_MASTER_ENCRYPTION_KEY so BYOK routing can be constructed"
+            )
+        return LlmAgentRunner(
+            router=model_router,
+            provisioner=provisioner,
+            max_steps=settings.agent_max_steps,
+            command_timeout_seconds=settings.agent_command_timeout_seconds,
+        )
     raise NotImplementedError(f"unknown agent runner {settings.agent_runner!r}")
 
 
@@ -115,10 +132,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         key_vault = build_key_vault(app_settings)
         model_router = build_model_router(app_settings, sessionmaker, key_vault)
-        agent_runner = build_agent_runner(app_settings)
         repo_cloner: RepoCloner = NoopCloner()
         if github_service is not None:
             repo_cloner = GitHubCloner(github=github_service, provisioner=provisioner)
+        agent_runner = build_agent_runner(app_settings, model_router, provisioner)
 
         orchestrator = SessionOrchestrator(
             sessionmaker=sessionmaker,
