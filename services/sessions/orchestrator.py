@@ -11,6 +11,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
+from services.agent.base import AgentContext, AgentRunner
+from services.agent.fake import FakeAgentRunner
 from services.db.models import Artifact, Event, Repo, UsageRecord
 from services.db.models import Session as SessionRow
 from services.github.service import NoopCloner, RepoCloner
@@ -43,6 +45,7 @@ class SessionOrchestrator:
     hub: SessionEventHub
     artifacts_dir: Path
     repo_cloner: RepoCloner = field(default_factory=NoopCloner)
+    agent_runner: AgentRunner = field(default_factory=FakeAgentRunner)
     state_machine: SessionStateMachine = field(default_factory=SessionStateMachine)
     step_delay_seconds: float = 0.05
     runtimes: dict[UUID, SessionRuntime] = field(default_factory=dict)
@@ -201,6 +204,33 @@ class SessionOrchestrator:
                 "status_changed",
                 {"status": SessionStatus.RUNNING.value},
             )
+            assert runtime.handle is not None
+
+            async def emit_event(event_type: str, payload: dict[str, object]) -> None:
+                await self._append_event(session_id, event_type, payload)
+
+            agent_result = await self.agent_runner.run(
+                AgentContext(
+                    session_id=session_id,
+                    prompt=session_row.prompt,
+                    repo_full_name=repo.full_name,
+                    handle=runtime.handle,
+                ),
+                emit=emit_event,
+                cancel_event=runtime.cancel_event,
+            )
+            await self._append_event(
+                session_id,
+                "agent_result",
+                {
+                    "success": agent_result.success,
+                    "summary": agent_result.summary,
+                    "steps": agent_result.steps,
+                    "changed_files": agent_result.changed_files,
+                },
+            )
+            if runtime.cancel_event.is_set():
+                return
             await asyncio.sleep(self.step_delay_seconds)
             if runtime.cancel_event.is_set():
                 return

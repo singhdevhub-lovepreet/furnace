@@ -9,6 +9,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from services.agent.base import AgentRunner
+from services.agent.fake import FakeAgentRunner
 from services.api.routes import build_router, install_websocket_routes
 from services.config import Settings
 from services.db.session import build_engine, build_sessionmaker, create_all
@@ -89,6 +91,12 @@ def build_model_router(
     return ModelRouter(sessionmaker=sessionmaker, key_vault=key_vault)
 
 
+def build_agent_runner(settings: Settings) -> AgentRunner:
+    if settings.agent_runner == "fake":
+        return FakeAgentRunner(step_delay_seconds=settings.session_step_delay_seconds)
+    raise NotImplementedError(f"unknown agent runner {settings.agent_runner!r}")
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     app_settings = settings or Settings()
 
@@ -107,6 +115,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         key_vault = build_key_vault(app_settings)
         model_router = build_model_router(app_settings, sessionmaker, key_vault)
+        agent_runner = build_agent_runner(app_settings)
         repo_cloner: RepoCloner = NoopCloner()
         if github_service is not None:
             repo_cloner = GitHubCloner(github=github_service, provisioner=provisioner)
@@ -118,6 +127,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             hub=event_hub,
             artifacts_dir=Path(app_settings.artifacts_dir),
             repo_cloner=repo_cloner,
+            agent_runner=agent_runner,
             step_delay_seconds=app_settings.session_step_delay_seconds,
         )
 
@@ -130,6 +140,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.github_service = github_service
         app.state.key_vault = key_vault
         app.state.model_router = model_router
+        app.state.agent_runner = agent_runner
         app.state.orchestrator = orchestrator
 
         await pool_controller.reconcile()
