@@ -122,15 +122,22 @@ class SessionOrchestrator:
 
     async def _create_usage(self, session_id: UUID, mac_seconds: int) -> None:
         async with self.sessionmaker() as db:
-            db.add(
-                UsageRecord(
-                    session_id=session_id,
-                    mac_seconds=mac_seconds,
-                    prompt_tokens=0,
-                    completion_tokens=0,
-                    mac_cost_usd=Decimal("0.0000"),
-                )
+            result = await db.execute(
+                select(UsageRecord).where(UsageRecord.session_id == session_id)
             )
+            usage = result.scalar_one_or_none()
+            if usage is None:
+                db.add(
+                    UsageRecord(
+                        session_id=session_id,
+                        mac_seconds=mac_seconds,
+                        prompt_tokens=0,
+                        completion_tokens=0,
+                        mac_cost_usd=Decimal("0.0000"),
+                    )
+                )
+            else:
+                usage.mac_seconds += mac_seconds
             await db.commit()
 
     async def _load_session_and_repo(self, session_id: UUID) -> tuple[SessionRow, Repo]:

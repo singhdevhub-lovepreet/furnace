@@ -62,6 +62,7 @@ async def github_app(tmp_path: Path) -> AsyncGenerator[FastAPI, None]:
         database_url=f"sqlite+aiosqlite:///{tmp_path / 'github.db'}",
         artifacts_dir=str(tmp_path / "artifacts"),
         auto_create_schema=True,
+        agent_runner="fake",
         github_app_id="12345",
         github_app_slug="raven-sample",
         github_app_private_key=private_key_pem,

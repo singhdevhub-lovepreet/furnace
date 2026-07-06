@@ -26,6 +26,7 @@ async def pool_app(tmp_path: Path) -> AsyncGenerator[FastAPI, None]:
         database_url=f"sqlite+aiosqlite:///{tmp_path / 'pool.db'}",
         artifacts_dir=str(tmp_path / "artifacts"),
         auto_create_schema=True,
+        agent_runner="fake",
         fake_max_slots=1,
         pool_capacity_override=1,
         pool_estimated_session_seconds=10,

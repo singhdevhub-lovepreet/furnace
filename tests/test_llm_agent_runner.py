@@ -6,6 +6,7 @@ import os
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 from uuid import UUID
 
@@ -25,6 +26,7 @@ from services.llm.policy import ProviderName
 from services.llm.router import CompletionResult, ModelRouter
 from services.scheduler.provisioner.base import SessionHandle
 from services.scheduler.provisioner.fake import FakeProvisioner
+from services.sessions.orchestrator import SessionOrchestrator
 from services.vault.key_vault import KeyVault
 
 
@@ -38,6 +40,7 @@ async def test_app(tmp_path: Path) -> AsyncGenerator[FastAPI, None]:
         database_url=f"sqlite+aiosqlite:///{tmp_path / 'llm-agent.db'}",
         artifacts_dir=str(tmp_path / "artifacts"),
         auto_create_schema=True,
+        agent_runner="fake",
         master_encryption_key=master_key_b64(),
     )
     app = create_app(settings)
@@ -329,3 +332,45 @@ async def test_llm_agent_runner_recovers_from_parse_failure(test_app: FastAPI) -
     content = last_message["content"]
     assert isinstance(content, str)
     assert "not valid JSON matching a tool schema" in content
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_usage_creation_preserves_existing_tokens(
+    test_app: FastAPI,
+) -> None:
+    user_id = await seed_user(test_app)
+    session_id, _repo_id = await seed_session(
+        test_app,
+        user_id,
+        {
+            "default": {"provider": ProviderName.OPENROUTER.value, "model": "gpt-4o-mini"},
+            "roles": {},
+        },
+    )
+    sessionmaker: async_sessionmaker[AsyncSession] = test_app.state.sessionmaker
+    async with sessionmaker() as db:
+        existing = UsageRecord(
+            session_id=session_id,
+            mac_seconds=5,
+            prompt_tokens=13,
+            completion_tokens=17,
+            mac_cost_usd=Decimal("0.0000"),
+        )
+        db.add(existing)
+        await db.commit()
+
+    orchestrator: SessionOrchestrator = test_app.state.orchestrator
+    await orchestrator._create_usage(session_id, mac_seconds=8)
+
+    async with sessionmaker() as db:
+        usage_rows = (
+            (await db.execute(select(UsageRecord).where(UsageRecord.session_id == session_id)))
+            .scalars()
+            .all()
+        )
+
+    assert len(usage_rows) == 1
+    usage = usage_rows[0]
+    assert usage.mac_seconds == 13
+    assert usage.prompt_tokens == 13
+    assert usage.completion_tokens == 17
