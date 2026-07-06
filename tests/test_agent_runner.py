@@ -11,7 +11,7 @@ from sqlalchemy import select
 
 from services.agent.base import AgentContext
 from services.agent.fake import FakeAgentRunner
-from services.db.models import Event, GithubInstallation, Repo, User
+from services.db.models import Event, GithubInstallation, Repo
 from services.scheduler.provisioner.base import SessionHandle
 from services.sessions.state_machine import SessionStatus
 
@@ -85,10 +85,14 @@ async def test_fake_agent_runner_honors_cancel_event() -> None:
 async def seed_repo(app: FastAPI) -> UUID:
     sessionmaker = app.state.sessionmaker
     async with sessionmaker() as db:
-        user = User(email="agent@example.com", plan="pro")
-        installation = GithubInstallation(user=user, installation_id=1234, account_login="octo")
+        user_id = app.state.auth_user_id
+        installation = GithubInstallation(
+            user_id=user_id,
+            installation_id=1234,
+            account_login="octo",
+        )
         repo = Repo(installation=installation, full_name="example/repo", default_branch="main")
-        db.add_all([user, installation, repo])
+        db.add_all([installation, repo])
         await db.commit()
         await db.refresh(repo)
         return repo.id

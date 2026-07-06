@@ -8,16 +8,20 @@ import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
 
-from services.db.models import Artifact, GithubInstallation, Repo, User
+from services.db.models import Artifact, GithubInstallation, Repo
 
 
 async def seed_repo(app: FastAPI) -> UUID:
     sessionmaker = app.state.sessionmaker
     async with sessionmaker() as db:
-        user = User(email="ui@example.com", plan="pro")
-        installation = GithubInstallation(user=user, installation_id=1234, account_login="octo")
+        user_id = app.state.auth_user_id
+        installation = GithubInstallation(
+            user_id=user_id,
+            installation_id=1234,
+            account_login="octo",
+        )
         repo = Repo(installation=installation, full_name="example/repo", default_branch="main")
-        db.add_all([user, installation, repo])
+        db.add_all([installation, repo])
         await db.commit()
         await db.refresh(repo)
         return repo.id

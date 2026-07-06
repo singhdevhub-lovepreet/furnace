@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -17,6 +18,53 @@ class CreateSessionRequest(ApiModel):
     repo_id: UUID
     prompt: str
     model_policy: ModelPolicy = Field(default_factory=ModelPolicy)
+
+
+class UserOut(ApiModel):
+    id: UUID
+    email: str
+    plan: str
+    created_at: datetime
+
+
+class AuthSignupRequest(ApiModel):
+    email: str
+    password: str
+    plan: str | None = None
+
+    @field_validator("email", "password")
+    @classmethod
+    def _non_empty(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+    @field_validator("plan")
+    @classmethod
+    def _optional_plan(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+
+class AuthLoginRequest(ApiModel):
+    email: str
+    password: str
+
+    @field_validator("email", "password")
+    @classmethod
+    def _non_empty(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+
+class AuthTokenResponse(ApiModel):
+    access_token: str
+    token_type: Literal["bearer"]
+    user: UserOut
 
 
 class SessionOut(ApiModel):

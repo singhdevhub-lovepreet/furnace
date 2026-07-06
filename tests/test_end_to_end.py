@@ -8,14 +8,7 @@ from fastapi import FastAPI
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from services.db.models import (
-    Artifact,
-    Event,
-    GithubInstallation,
-    Repo,
-    UsageRecord,
-    User,
-)
+from services.db.models import Artifact, Event, GithubInstallation, Repo, UsageRecord
 from services.db.models import (
     Session as SessionRow,
 )
@@ -25,10 +18,14 @@ from services.sessions.state_machine import SessionStatus
 async def seed_repo(app: FastAPI) -> UUID:
     sessionmaker = app.state.sessionmaker
     async with sessionmaker() as db:
-        user = User(email="user@example.com", plan="pro")
-        installation = GithubInstallation(user=user, installation_id=1234, account_login="octo")
+        user_id = app.state.auth_user_id
+        installation = GithubInstallation(
+            user_id=user_id,
+            installation_id=1234,
+            account_login="octo",
+        )
         repo = Repo(installation=installation, full_name="example/repo", default_branch="main")
-        db.add_all([user, installation, repo])
+        db.add_all([installation, repo])
         await db.commit()
         await db.refresh(repo)
         return repo.id
