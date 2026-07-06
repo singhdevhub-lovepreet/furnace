@@ -7,6 +7,58 @@ on:
       - main
 
 jobs:
+  migrations:
+    name: migrations
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: furnace
+          POSTGRES_USER: furnace
+          POSTGRES_PASSWORD: furnace
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U furnace -d furnace"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Upgrade migrations
+        env:
+          FURNACE_DATABASE_URL: postgresql+asyncpg://furnace:furnace@localhost:5432/furnace
+        run: alembic upgrade head
+
+      - name: Downgrade migrations
+        env:
+          FURNACE_DATABASE_URL: postgresql+asyncpg://furnace:furnace@localhost:5432/furnace
+        run: alembic downgrade base
+
+      - name: Re-upgrade migrations
+        env:
+          FURNACE_DATABASE_URL: postgresql+asyncpg://furnace:furnace@localhost:5432/furnace
+        run: alembic upgrade head
+
+      - name: Alembic check
+        env:
+          FURNACE_DATABASE_URL: postgresql+asyncpg://furnace:furnace@localhost:5432/furnace
+        run: alembic check
+
   backend:
     name: backend
     runs-on: ubuntu-latest

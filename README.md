@@ -28,3 +28,22 @@ Run against a cloned repository instead of the built-in SampleApp:
 ```bash
 ./spike/run_spike.sh --repo <git-url>
 ```
+
+## Database & migrations
+
+For local Postgres development, start the bundled database container:
+
+```bash
+docker compose up -d
+```
+
+Then point the app at Postgres and run migrations:
+
+```bash
+export FURNACE_DATABASE_URL=postgresql+asyncpg://furnace:furnace@localhost:5432/furnace
+export FURNACE_RUN_MIGRATIONS_ON_STARTUP=true
+export FURNACE_AUTO_CREATE_SCHEMA=false
+alembic upgrade head
+```
+
+The test suite uses SQLite by default, so you do not need Postgres for the standard local test run.

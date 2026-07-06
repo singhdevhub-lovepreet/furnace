@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -14,6 +15,7 @@ from services.agent.fake import FakeAgentRunner
 from services.agent.llm import LlmAgentRunner
 from services.api.routes import build_router, install_websocket_routes
 from services.config import Settings
+from services.db.migrate import run_migrations
 from services.db.session import build_engine, build_sessionmaker, create_all
 from services.github.client import GitHubAppClient
 from services.github.service import GitHubCloner, GitHubService, NoopCloner, RepoCloner
@@ -161,7 +163,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.orchestrator = orchestrator
 
         await pool_controller.reconcile()
-        if app_settings.auto_create_schema:
+        if app_settings.run_migrations_on_startup:
+            await asyncio.to_thread(run_migrations, app_settings.database_url)
+        elif app_settings.auto_create_schema:
             await create_all(engine)
 
         yield
