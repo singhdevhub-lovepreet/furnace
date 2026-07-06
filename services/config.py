@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     session_step_delay_seconds: float = Field(default=0.05, ge=0.0)
     fake_queue_acquire: bool = Field(default=False)
     auto_create_schema: bool = Field(default=True)
+    web_origin: str = Field(default="http://localhost:3000")
     fake_max_slots: int = Field(default=4, ge=1)
     pool_capacity_override: int | None = Field(default=None, ge=1)
     pool_estimated_session_seconds: int = Field(default=30, ge=1)
