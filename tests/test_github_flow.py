@@ -27,6 +27,7 @@ from services.db.models import Session as SessionRow
 from services.db.session import build_engine, build_sessionmaker, create_all
 from services.github.client import GitHubAppClient
 from services.github.service import GitHubCloner, GitHubService, NoopCloner
+from services.github.state import build_install_state, verify_install_state
 from services.scheduler.pool import PoolController
 from services.scheduler.provisioner.base import SessionSpec
 from services.scheduler.provisioner.fake import FakeProvisioner
@@ -41,9 +42,14 @@ class GitHubApiState:
         self.requests: list[httpx.Request] = []
         self.installation_token: str = "installation-token-1"
         self.installation_expires_at: datetime = datetime.now(UTC) + timedelta(hours=1)
+        self.installation_account_login: str = "octo"
         self.repositories: list[dict[str, object]] = [
             {"id": 101, "full_name": "octo/example", "default_branch": "main"},
         ]
+
+
+def sign_webhook(secret: str, body: bytes) -> str:
+    return "sha256=" + hmac.new(secret.encode("utf-8"), body, digestmod="sha256").hexdigest()
 
 
 def generate_private_key_pem() -> tuple[str, rsa.RSAPrivateKey]:
@@ -210,12 +216,28 @@ async def test_list_installation_repos() -> None:
 
 
 @pytest.mark.asyncio
-async def test_install_url_and_webhook_sync(github_app: FastAPI) -> None:
+async def test_install_state_round_trip_and_validation() -> None:
+    secret = "state-secret"
+    user_id = UUID("11111111-2222-3333-4444-555555555555")
+    state = build_install_state(secret, user_id)
+    assert verify_install_state(secret, state) == user_id
+    parts = state.split(".")
+    assert verify_install_state(secret, f"{parts[0]}.{parts[1]}.deadbeef") is None
+    assert verify_install_state("wrong-secret", state) is None
+    assert verify_install_state(secret, "not-a-valid-state") is None
+
+
+@pytest.mark.asyncio
+async def test_github_setup_callback_binds_installation(github_app: FastAPI) -> None:
     sessionmaker = github_app.state.sessionmaker
     state = GitHubApiState()
 
     def handler(request: httpx.Request) -> httpx.Response:
         state.requests.append(request)
+        if request.url.path == "/app/installations/9876":
+            return httpx.Response(
+                200, json={"account": {"login": state.installation_account_login}}
+            )
         if request.url.path == "/app/installations/9876/access_tokens":
             return httpx.Response(
                 201,
@@ -256,31 +278,23 @@ async def test_install_url_and_webhook_sync(github_app: FastAPI) -> None:
             assert parsed.path == "/apps/raven-sample/installations/new"
             state_parts = parse_qs(parsed.query)["state"][0].split(".")
             assert state_parts[0] == str(user_id)
-
-            body = {
-                "action": "created",
-                "installation": {"id": 9876, "account": {"login": "octo"}},
-            }
-            raw_body = json.dumps(body).encode("utf-8")
-            signature = (
-                "sha256="
-                + hmac.new(
-                    github_app.state.settings.github_webhook_secret.encode("utf-8"),
-                    raw_body,
-                    digestmod="sha256",
-                ).hexdigest()
+            assert (
+                verify_install_state(
+                    github_app.state.settings.github_webhook_secret,
+                    parse_qs(parsed.query)["state"][0],
+                )
+                == user_id
             )
-            response = await api_client.post(
-                "/v1/webhooks/github",
-                content=raw_body,
-                headers={"X-GitHub-Event": "installation", "X-Hub-Signature-256": signature},
-            )
-            assert response.status_code == 204
 
-            repos_response = await api_client.get("/v1/repos")
-            assert repos_response.status_code == 200
-            repos = [RepoOut.model_validate(item) for item in repos_response.json()]
-            assert [repo.full_name for repo in repos] == ["octo/example"]
+            response = await api_client.get(
+                "/v1/github/setup",
+                params={"installation_id": 9876, "state": parse_qs(parsed.query)["state"][0]},
+            )
+            assert response.status_code == 302
+            assert (
+                response.headers["location"]
+                == f"{github_app.state.settings.web_origin.rstrip('/')}/"
+            )
 
             async with sessionmaker() as db:
                 installation = (
@@ -288,44 +302,212 @@ async def test_install_url_and_webhook_sync(github_app: FastAPI) -> None:
                         select(GithubInstallation).where(GithubInstallation.installation_id == 9876)
                     )
                 ).scalar_one()
-                assert installation.account_login == "octo"
+                assert installation.user_id == user_id
+                assert installation.account_login == state.installation_account_login
                 repo_rows = (
                     (await db.execute(select(Repo).where(Repo.installation_id == installation.id)))
                     .scalars()
                     .all()
                 )
-                assert len(repo_rows) == 1
+                assert [row.full_name for row in repo_rows] == ["octo/example"]
 
-            state.repositories = [
-                {"id": 101, "full_name": "octo/example", "default_branch": "main"},
-                {"id": 102, "full_name": "octo/second", "default_branch": "develop"},
-            ]
-            repo_event = {
-                "action": "added",
-                "installation": {"id": 9876, "account": {"login": "octo"}},
-                "repositories_added": [],
-                "repositories_removed": [],
-            }
-            repo_event_raw = json.dumps(repo_event).encode("utf-8")
-            repo_event_signature = (
-                "sha256="
-                + hmac.new(
-                    github_app.state.settings.github_webhook_secret.encode("utf-8"),
-                    repo_event_raw,
-                    digestmod="sha256",
-                ).hexdigest()
+            repos_response = await api_client.get("/v1/repos")
+            assert repos_response.status_code == 200
+            repos = [RepoOut.model_validate(item) for item in repos_response.json()]
+            assert [repo.full_name for repo in repos] == ["octo/example"]
+
+
+@pytest.mark.asyncio
+async def test_github_setup_callback_rejects_invalid_state(github_app: FastAPI) -> None:
+    state = GitHubApiState()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        state.requests.append(request)
+        raise AssertionError("github client should not be called for invalid state")
+
+    async with AsyncClient(
+        transport=MockTransport(handler), base_url="https://api.github.test"
+    ) as http_client:
+        client = GitHubAppClient(
+            http_client,
+            app_id="12345",
+            private_key_pem=github_app.state.settings.github_app_private_key,
+            api_base="https://api.github.test",
+        )
+        github_app.state.github_service = GitHubService(
+            sessionmaker=github_app.state.sessionmaker,
+            client=client,
+            settings=github_app.state.settings,
+        )
+
+        async with AsyncClient(
+            transport=ASGITransport(app=github_app), base_url="http://test"
+        ) as api_client:
+            user_id, token, _ = await signup_user(api_client, "github@example.com", "password123")
+            api_client.headers["Authorization"] = f"Bearer {token}"
+
+            missing_response = await api_client.get(
+                "/v1/github/setup",
+                params={"installation_id": 9876},
             )
+            assert missing_response.status_code == 400
+            invalid_response = await api_client.get(
+                "/v1/github/setup",
+                params={"installation_id": 9876, "state": "broken.state"},
+            )
+            assert invalid_response.status_code == 400
+            assert state.requests == []
+
+            async with github_app.state.sessionmaker() as db:
+                installation = (
+                    await db.execute(
+                        select(GithubInstallation).where(GithubInstallation.installation_id == 9876)
+                    )
+                ).scalar_one_or_none()
+                assert installation is None
+
+            assert user_id is not None
+
+
+@pytest.mark.asyncio
+async def test_webhook_installation_created_unknown_skips_binding(github_app: FastAPI) -> None:
+    state = GitHubApiState()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        state.requests.append(request)
+        raise AssertionError("github client should not be called")
+
+    async with AsyncClient(
+        transport=MockTransport(handler), base_url="https://api.github.test"
+    ) as http_client:
+        client = GitHubAppClient(
+            http_client,
+            app_id="12345",
+            private_key_pem=github_app.state.settings.github_app_private_key,
+            api_base="https://api.github.test",
+        )
+        github_app.state.github_service = GitHubService(
+            sessionmaker=github_app.state.sessionmaker,
+            client=client,
+            settings=github_app.state.settings,
+        )
+        async with AsyncClient(
+            transport=ASGITransport(app=github_app), base_url="http://test"
+        ) as api_client:
+            await signup_user(api_client, "alpha@example.com", "password123")
+            await signup_user(api_client, "beta@example.com", "password123")
+
+            body = {
+                "action": "created",
+                "installation": {"id": 9999, "account": {"login": "octo"}},
+            }
+            raw_body = json.dumps(body).encode("utf-8")
             response = await api_client.post(
                 "/v1/webhooks/github",
-                content=repo_event_raw,
+                content=raw_body,
                 headers={
-                    "X-GitHub-Event": "installation_repositories",
-                    "X-Hub-Signature-256": repo_event_signature,
+                    "X-GitHub-Event": "installation",
+                    "X-Hub-Signature-256": sign_webhook(
+                        github_app.state.settings.github_webhook_secret,
+                        raw_body,
+                    ),
+                },
+            )
+            assert response.status_code == 204
+
+            async with github_app.state.sessionmaker() as db:
+                installation = (
+                    await db.execute(
+                        select(GithubInstallation).where(GithubInstallation.installation_id == 9999)
+                    )
+                ).scalar_one_or_none()
+                assert installation is None
+
+
+@pytest.mark.asyncio
+async def test_webhook_installation_created_updates_known_installation(github_app: FastAPI) -> None:
+    sessionmaker = github_app.state.sessionmaker
+    state = GitHubApiState()
+    state.repositories = [
+        {"id": 101, "full_name": "octo/example", "default_branch": "main"},
+        {"id": 102, "full_name": "octo/second", "default_branch": "develop"},
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        state.requests.append(request)
+        if request.url.path == "/app/installations/9876":
+            return httpx.Response(
+                200, json={"account": {"login": state.installation_account_login}}
+            )
+        if request.url.path == "/app/installations/9876/access_tokens":
+            return httpx.Response(
+                201,
+                json={
+                    "token": state.installation_token,
+                    "expires_at": state.installation_expires_at.isoformat(),
+                },
+            )
+        if request.url.path == "/installation/repositories":
+            return httpx.Response(200, json={"repositories": state.repositories})
+        raise AssertionError(f"unexpected path {request.url.path}")
+
+    async with AsyncClient(
+        transport=MockTransport(handler), base_url="https://api.github.test"
+    ) as http_client:
+        client = GitHubAppClient(
+            http_client,
+            app_id="12345",
+            private_key_pem=github_app.state.settings.github_app_private_key,
+            api_base="https://api.github.test",
+        )
+        github_app.state.github_service = GitHubService(
+            sessionmaker=sessionmaker,
+            client=client,
+            settings=github_app.state.settings,
+        )
+
+        async with AsyncClient(
+            transport=ASGITransport(app=github_app), base_url="http://test"
+        ) as api_client:
+            user_id, token, _ = await signup_user(api_client, "github@example.com", "password123")
+            api_client.headers["Authorization"] = f"Bearer {token}"
+            install_url_response = await api_client.get("/v1/github/install-url")
+            state_value = parse_qs(urlparse(install_url_response.json()["url"]).query)["state"][0]
+            await api_client.get(
+                "/v1/github/setup",
+                params={"installation_id": 9876, "state": state_value},
+            )
+
+            state.installation_account_login = "octo-updated"
+            state.repositories = [
+                {"id": 201, "full_name": "octo/example", "default_branch": "main"},
+                {"id": 202, "full_name": "octo/second", "default_branch": "develop"},
+            ]
+            body = {
+                "action": "created",
+                "installation": {"id": 9876, "account": {"login": "octo-updated"}},
+            }
+            raw_body = json.dumps(body).encode("utf-8")
+            response = await api_client.post(
+                "/v1/webhooks/github",
+                content=raw_body,
+                headers={
+                    "X-GitHub-Event": "installation",
+                    "X-Hub-Signature-256": sign_webhook(
+                        github_app.state.settings.github_webhook_secret,
+                        raw_body,
+                    ),
                 },
             )
             assert response.status_code == 204
 
             async with sessionmaker() as db:
+                installation = (
+                    await db.execute(
+                        select(GithubInstallation).where(GithubInstallation.installation_id == 9876)
+                    )
+                ).scalar_one()
+                assert installation.account_login == "octo-updated"
                 repo_rows = (
                     (
                         await db.execute(
@@ -338,6 +520,75 @@ async def test_install_url_and_webhook_sync(github_app: FastAPI) -> None:
                     .all()
                 )
                 assert {row.full_name for row in repo_rows} == {"octo/example", "octo/second"}
+
+
+@pytest.mark.asyncio
+async def test_github_repos_remain_tenant_scoped_after_install_binding(github_app: FastAPI) -> None:
+    sessionmaker = github_app.state.sessionmaker
+    state = GitHubApiState()
+    state.repositories = [
+        {"id": 101, "full_name": "octo/example", "default_branch": "main"},
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        state.requests.append(request)
+        if request.url.path == "/app/installations/9876":
+            return httpx.Response(
+                200, json={"account": {"login": state.installation_account_login}}
+            )
+        if request.url.path == "/app/installations/9876/access_tokens":
+            return httpx.Response(
+                201,
+                json={
+                    "token": state.installation_token,
+                    "expires_at": state.installation_expires_at.isoformat(),
+                },
+            )
+        if request.url.path == "/installation/repositories":
+            return httpx.Response(200, json={"repositories": state.repositories})
+        raise AssertionError(f"unexpected path {request.url.path}")
+
+    async with AsyncClient(
+        transport=MockTransport(handler), base_url="https://api.github.test"
+    ) as http_client:
+        client = GitHubAppClient(
+            http_client,
+            app_id="12345",
+            private_key_pem=github_app.state.settings.github_app_private_key,
+            api_base="https://api.github.test",
+        )
+        github_app.state.github_service = GitHubService(
+            sessionmaker=sessionmaker,
+            client=client,
+            settings=github_app.state.settings,
+        )
+
+        async with AsyncClient(
+            transport=ASGITransport(app=github_app), base_url="http://test"
+        ) as api_client:
+            user_a_id, token_a, _ = await signup_user(
+                api_client, "github@example.com", "password123"
+            )
+            api_client.headers["Authorization"] = f"Bearer {token_a}"
+            install_url_response = await api_client.get("/v1/github/install-url")
+            state_value = parse_qs(urlparse(install_url_response.json()["url"]).query)["state"][0]
+            await api_client.get(
+                "/v1/github/setup",
+                params={"installation_id": 9876, "state": state_value},
+            )
+
+            repos_response_a = await api_client.get("/v1/repos")
+            assert repos_response_a.status_code == 200
+            repos_a = [RepoOut.model_validate(item) for item in repos_response_a.json()]
+            assert [repo.full_name for repo in repos_a] == ["octo/example"]
+
+            _, token_b, _ = await signup_user(api_client, "beta@example.com", "password123")
+            api_client.headers["Authorization"] = f"Bearer {token_b}"
+            repos_response_b = await api_client.get("/v1/repos")
+            assert repos_response_b.status_code == 200
+            repos_b = [RepoOut.model_validate(item) for item in repos_response_b.json()]
+            assert repos_b == []
+            assert user_a_id is not None
 
 
 @pytest.mark.asyncio

@@ -33,6 +33,14 @@ class GitHubInstallationReposResponse(ApiModel):
     repositories: list[GitHubRepo]
 
 
+class GitHubInstallationAccount(ApiModel):
+    login: str
+
+
+class GitHubInstallationDetails(ApiModel):
+    account: GitHubInstallationAccount
+
+
 @dataclass(slots=True)
 class CachedInstallationToken:
     token: str
@@ -119,3 +127,14 @@ class GitHubAppClient:
         response.raise_for_status()
         payload = GitHubInstallationReposResponse.model_validate(response.json())
         return payload.repositories
+
+    async def get_installation(self, installation_id: int) -> GitHubInstallationDetails:
+        response = await self._http_client.get(
+            f"{self._api_base}/app/installations/{installation_id}",
+            headers={
+                "Authorization": f"Bearer {self.build_app_jwt()}",
+                "Accept": "application/vnd.github+json",
+            },
+        )
+        response.raise_for_status()
+        return GitHubInstallationDetails.model_validate(response.json())

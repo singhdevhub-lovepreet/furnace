@@ -1,18 +1,15 @@
 from __future__ import annotations
 
-import hmac
 import mimetypes
-import secrets
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
-from hashlib import sha256
 from pathlib import Path
 from typing import Annotated
 from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response, WebSocket
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -49,6 +46,7 @@ from services.db.models import (
     Session as SessionRow,
 )
 from services.github.service import GitHubService
+from services.github.state import build_install_state, verify_install_state
 from services.llm.policy import MODEL_CATALOG, ModelCatalog
 from services.llm.router import ModelRouter
 from services.scheduler.pool import PoolController
@@ -96,10 +94,7 @@ def _install_state(request: Request, user_id: UUID) -> str:
     secret = settings.github_webhook_secret or settings.github_app_private_key
     if secret is None:
         raise HTTPException(status_code=500, detail="GitHub install state secret is not configured")
-    nonce = secrets.token_urlsafe(32)
-    payload = f"{user_id}.{nonce}"
-    digest = hmac.new(secret.encode("utf-8"), payload.encode("utf-8"), sha256).hexdigest()
-    return f"{payload}.{digest}"
+    return build_install_state(secret, user_id)
 
 
 async def _load_owned_repo(db: AsyncSession, user_id: UUID, repo_id: UUID) -> Repo:
@@ -340,6 +335,28 @@ def build_router() -> APIRouter:
         else:
             url = github_service.build_install_url(state)
         return {"url": url}
+
+    @router.get("/github/setup")
+    async def github_setup(
+        request: Request,
+        installation_id: int,
+        state: str | None = None,
+        setup_action: str | None = None,
+    ) -> Response:
+        _ = setup_action
+        settings = request.app.state.settings
+        secret = settings.github_webhook_secret or settings.github_app_private_key
+        if secret is None:
+            raise HTTPException(
+                status_code=500, detail="GitHub install state secret is not configured"
+            )
+        user_id = verify_install_state(secret, state) if state is not None else None
+        if user_id is None:
+            raise HTTPException(status_code=400, detail="invalid install state")
+        github_service = _get_github_service(request)
+        await github_service.bind_installation(installation_id, user_id)
+        web_origin = settings.web_origin.rstrip("/")
+        return RedirectResponse(url=f"{web_origin}/", status_code=302)
 
     @router.post("/webhooks/github")
     async def github_webhook(request: Request) -> Response:

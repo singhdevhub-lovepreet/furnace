@@ -10,7 +10,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from services.config import Settings
-from services.db.models import GithubInstallation, Repo, User
+from services.db.models import GithubInstallation, Repo
 from services.github.client import GitHubAppClient
 from services.github.webhooks import (
     InstallationRepositoriesEvent,
@@ -52,11 +52,34 @@ class GitHubService:
     def verify_webhook(self, body: bytes, signature_header: str | None) -> bool:
         return verify_signature(self._secret(), body, signature_header)
 
+    async def bind_installation(self, installation_id: int, user_id: UUID) -> None:
+        installation_details = await self.client.get_installation(installation_id)
+        async with self.sessionmaker() as db:
+            result = await db.execute(
+                select(GithubInstallation).where(
+                    GithubInstallation.installation_id == installation_id
+                )
+            )
+            installation = result.scalar_one_or_none()
+            if installation is None:
+                installation = GithubInstallation(
+                    user_id=user_id,
+                    installation_id=installation_id,
+                    account_login=installation_details.account.login,
+                )
+                db.add(installation)
+            else:
+                installation.user_id = user_id
+                installation.account_login = installation_details.account.login
+            await db.flush()
+            await self._sync_installation_repos(db, installation)
+            await db.commit()
+
     async def handle_webhook(self, event_name: str, body: bytes) -> None:
         event = parse_event(event_name, body)
         if isinstance(event, InstallationWebhookEvent):
             if event.action == "created":
-                await self._upsert_installation_and_sync(
+                await self._sync_existing_installation_and_repos(
                     event.installation.id,
                     event.installation.account.login,
                 )
@@ -87,16 +110,12 @@ class GitHubService:
             raise ValueError("repo is not connected to a GitHub installation")
         return installation
 
-    async def _resolve_user_id(self, db: AsyncSession) -> UUID:
-        result = await db.execute(select(User.id).order_by(User.created_at).limit(1))
-        user_id = result.scalar_one_or_none()
-        if user_id is None:
-            raise ValueError("at least one user must exist before syncing GitHub installations")
-        return user_id
-
-    async def _upsert_installation_and_sync(self, installation_id: int, account_login: str) -> None:
+    async def _sync_existing_installation_and_repos(
+        self,
+        installation_id: int,
+        account_login: str,
+    ) -> None:
         async with self.sessionmaker() as db:
-            user_id = await self._resolve_user_id(db)
             result = await db.execute(
                 select(GithubInstallation).where(
                     GithubInstallation.installation_id == installation_id
@@ -104,14 +123,8 @@ class GitHubService:
             )
             installation = result.scalar_one_or_none()
             if installation is None:
-                installation = GithubInstallation(
-                    user_id=user_id,
-                    installation_id=installation_id,
-                    account_login=account_login,
-                )
-                db.add(installation)
-            else:
-                installation.account_login = account_login
+                return
+            installation.account_login = account_login
             await db.flush()
             await self._sync_installation_repos(db, installation)
             await db.commit()
