@@ -225,6 +225,7 @@ erDiagram
 |---|---|---|
 | `POST` | `/v1/keys` | store a BYOK LLM key (encrypted) |
 | `GET` | `/v1/github/install-url` | begin GitHub App install |
+| `GET` | `/v1/github/setup` | GitHub App setup callback / installation binding |
 | `GET` | `/v1/repos` | list connected repos |
 | `POST` | `/v1/sessions` | create a session `{repo_id, prompt, model_policy}` |
 | `GET` | `/v1/sessions/{id}` | session detail + status |
@@ -308,8 +309,10 @@ sequenceDiagram
     API->>GH: build install URL (app id, state)
     GH-->>U: redirect to GitHub App install
     U->>GHUB: choose repos, install
+    GHUB->>API: redirect to /v1/github/setup?installation_id=...&state=...
+    API->>GH: verify state, bind installation + sync repos
     GHUB->>API: webhook: installation created (installation_id)
-    API->>GH: persist installation + repos
+    API->>GH: update existing installation + repos
     Note over GH: per-session, on demand:
     GH->>GHUB: POST installation/{id}/access_tokens (scoped, ~1h)
     GHUB-->>GH: short-lived installation token
