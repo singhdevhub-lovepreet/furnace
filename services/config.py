@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     agent_command_timeout_seconds: int = Field(default=60, ge=1)
     auto_create_schema: bool = Field(default=True)
     run_migrations_on_startup: bool = Field(default=False)
+    auth_jwt_secret: str | None = Field(default=None)
+    auth_access_token_ttl_seconds: int = Field(default=604800, ge=1)
     web_origin: str = Field(default="http://localhost:3000")
     fake_max_slots: int = Field(default=4, ge=1)
     pool_capacity_override: int | None = Field(default=None, ge=1)

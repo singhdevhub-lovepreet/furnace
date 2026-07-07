@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from services.agent.base import AgentContext
 from services.agent.llm import LlmAgentRunner
 from services.app import create_app
+from services.auth.password import hash_password
 from services.config import Settings
 from services.db.models import GithubInstallation, LlmKey, Repo, UsageRecord, User
 from services.db.models import Session as SessionRow
@@ -41,6 +42,7 @@ async def test_app(tmp_path: Path) -> AsyncGenerator[FastAPI, None]:
         artifacts_dir=str(tmp_path / "artifacts"),
         auto_create_schema=True,
         agent_runner="fake",
+        auth_jwt_secret="test-jwt-secret-0123456789abcdef012345",
         master_encryption_key=master_key_b64(),
     )
     app = create_app(settings)
@@ -51,7 +53,11 @@ async def test_app(tmp_path: Path) -> AsyncGenerator[FastAPI, None]:
 async def seed_user(app: FastAPI) -> UUID:
     sessionmaker: async_sessionmaker[AsyncSession] = app.state.sessionmaker
     async with sessionmaker() as db:
-        user = User(email="agent@example.com", plan="pro")
+        user = User(
+            email="agent@example.com",
+            plan="pro",
+            password_hash=hash_password("password123"),
+        )
         db.add(user)
         await db.commit()
         await db.refresh(user)

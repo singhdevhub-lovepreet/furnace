@@ -118,6 +118,8 @@ def build_agent_runner(
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     app_settings = settings or Settings()
+    if app_settings.auth_jwt_secret is None:
+        raise RuntimeError("FURNACE_AUTH_JWT_SECRET must be configured")
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:

@@ -14,10 +14,14 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response, WebSocket
 from fastapi.responses import FileResponse
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from services.api.schemas import (
     ArtifactOut,
+    AuthLoginRequest,
+    AuthSignupRequest,
+    AuthTokenResponse,
     CreateSessionRequest,
     EventOut,
     LlmKeyCreateRequest,
@@ -26,7 +30,12 @@ from services.api.schemas import (
     RepoOut,
     SessionOut,
     UsageOut,
+    UserOut,
 )
+from services.auth.dependencies import get_current_user, resolve_user_from_token_string
+from services.auth.jwt import create_access_token
+from services.auth.password import hash_password, verify_password
+from services.config import Settings
 from services.db.models import (
     Artifact,
     Event,
@@ -52,14 +61,6 @@ async def get_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]
     async_sessionmaker_factory = request.app.state.sessionmaker
     async with async_sessionmaker_factory() as db:
         yield db
-
-
-async def _resolve_user_id(db: AsyncSession) -> UUID:
-    result = await db.execute(select(User.id).order_by(User.created_at).limit(1))
-    user_id = result.scalar_one_or_none()
-    if user_id is None:
-        raise HTTPException(status_code=404, detail="no user exists")
-    return user_id
 
 
 def _get_github_service(request: Request) -> GitHubService:
@@ -90,15 +91,50 @@ def _get_pool_controller(request: Request) -> PoolController:
     return pool_controller
 
 
-def _install_state(request: Request) -> str:
+def _install_state(request: Request, user_id: UUID) -> str:
     settings = request.app.state.settings
     secret = settings.github_webhook_secret or settings.github_app_private_key
     if secret is None:
         raise HTTPException(status_code=500, detail="GitHub install state secret is not configured")
     nonce = secrets.token_urlsafe(32)
-    digest = hmac.new(secret.encode("utf-8"), nonce.encode("utf-8"), sha256).hexdigest()
-    # Binding install state to a user is a later auth milestone.
-    return f"{nonce}.{digest}"
+    payload = f"{user_id}.{nonce}"
+    digest = hmac.new(secret.encode("utf-8"), payload.encode("utf-8"), sha256).hexdigest()
+    return f"{payload}.{digest}"
+
+
+async def _load_owned_repo(db: AsyncSession, user_id: UUID, repo_id: UUID) -> Repo:
+    result = await db.execute(
+        select(Repo)
+        .join(GithubInstallation)
+        .where(Repo.id == repo_id, GithubInstallation.user_id == user_id)
+    )
+    repo = result.scalar_one_or_none()
+    if repo is None:
+        raise HTTPException(status_code=404, detail="repo not found")
+    return repo
+
+
+async def _load_owned_session(db: AsyncSession, user_id: UUID, session_id: UUID) -> SessionRow:
+    result = await db.execute(
+        select(SessionRow).where(SessionRow.id == session_id, SessionRow.user_id == user_id)
+    )
+    session = result.scalar_one_or_none()
+    if session is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    return session
+
+
+def _auth_response(settings: Settings, user: User) -> AuthTokenResponse:
+    auth_secret = settings.auth_jwt_secret
+    auth_ttl_seconds = settings.auth_access_token_ttl_seconds
+    if auth_secret is None:
+        raise HTTPException(status_code=500, detail="auth JWT secret is not configured")
+    token = create_access_token(auth_secret, user.id, auth_ttl_seconds)
+    return AuthTokenResponse(
+        access_token=token,
+        token_type="bearer",
+        user=UserOut.model_validate(user, from_attributes=True),
+    )
 
 
 def _artifact_media_type(artifact: Artifact) -> str:
@@ -113,21 +149,60 @@ def _artifact_media_type(artifact: Artifact) -> str:
 def build_router() -> APIRouter:
     router = APIRouter(prefix="/v1")
 
+    @router.post("/auth/signup", response_model=AuthTokenResponse)
+    async def signup(
+        request: Request,
+        payload: AuthSignupRequest,
+        db: Annotated[AsyncSession, Depends(get_db_session)],
+    ) -> AuthTokenResponse:
+        existing = await db.execute(select(User).where(User.email == payload.email))
+        if existing.scalar_one_or_none() is not None:
+            raise HTTPException(status_code=409, detail="email already registered")
+        user = User(
+            email=payload.email,
+            plan=payload.plan or "pro",
+            password_hash=hash_password(payload.password),
+        )
+        db.add(user)
+        try:
+            await db.commit()
+        except IntegrityError as exc:
+            await db.rollback()
+            raise HTTPException(status_code=409, detail="email already registered") from exc
+        await db.refresh(user)
+        return _auth_response(request.app.state.settings, user)
+
+    @router.post("/auth/login", response_model=AuthTokenResponse)
+    async def login(
+        request: Request,
+        payload: AuthLoginRequest,
+        db: Annotated[AsyncSession, Depends(get_db_session)],
+    ) -> AuthTokenResponse:
+        result = await db.execute(select(User).where(User.email == payload.email))
+        user = result.scalar_one_or_none()
+        if user is None or not verify_password(payload.password, user.password_hash):
+            raise HTTPException(
+                status_code=401,
+                detail="invalid credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return _auth_response(request.app.state.settings, user)
+
+    @router.get("/auth/me", response_model=UserOut)
+    async def me(current_user: Annotated[User, Depends(get_current_user)]) -> UserOut:
+        return UserOut.model_validate(current_user, from_attributes=True)
+
     @router.post("/sessions", response_model=SessionOut)
     async def create_session(
         payload: CreateSessionRequest,
         request: Request,
         db: Annotated[AsyncSession, Depends(get_db_session)],
+        current_user: Annotated[User, Depends(get_current_user)],
     ) -> SessionOut:
-        repo = await db.get(Repo, payload.repo_id)
-        if repo is None:
-            raise HTTPException(status_code=404, detail="repo not found")
-        installation = await db.get(GithubInstallation, repo.installation_id)
-        if installation is None:
-            raise HTTPException(status_code=404, detail="installation not found")
+        repo = await _load_owned_repo(db, current_user.id, payload.repo_id)
 
         session = SessionRow(
-            user_id=installation.user_id,
+            user_id=current_user.id,
             repo_id=repo.id,
             prompt=payload.prompt,
             status=SessionStatus.QUEUED.value,
@@ -144,19 +219,22 @@ def build_router() -> APIRouter:
 
     @router.get("/sessions/{session_id}", response_model=SessionOut)
     async def get_session(
-        session_id: UUID, db: Annotated[AsyncSession, Depends(get_db_session)]
+        session_id: UUID,
+        db: Annotated[AsyncSession, Depends(get_db_session)],
+        current_user: Annotated[User, Depends(get_current_user)],
     ) -> SessionOut:
-        session = await db.get(SessionRow, session_id)
-        if session is None:
-            raise HTTPException(status_code=404, detail="session not found")
+        session = await _load_owned_session(db, current_user.id, session_id)
         return SessionOut.model_validate(session, from_attributes=True)
 
     @router.get("/sessions", response_model=list[SessionOut])
     async def list_sessions(
         db: Annotated[AsyncSession, Depends(get_db_session)],
+        current_user: Annotated[User, Depends(get_current_user)],
     ) -> list[SessionOut]:
         result = await db.execute(
-            select(SessionRow).order_by(SessionRow.created_at.desc(), SessionRow.id.desc())
+            select(SessionRow)
+            .where(SessionRow.user_id == current_user.id)
+            .order_by(SessionRow.created_at.desc(), SessionRow.id.desc())
         )
         sessions = result.scalars().all()
         return [SessionOut.model_validate(row, from_attributes=True) for row in sessions]
@@ -166,10 +244,9 @@ def build_router() -> APIRouter:
         session_id: UUID,
         request: Request,
         db: Annotated[AsyncSession, Depends(get_db_session)],
+        current_user: Annotated[User, Depends(get_current_user)],
     ) -> SessionOut:
-        session = await db.get(SessionRow, session_id)
-        if session is None:
-            raise HTTPException(status_code=404, detail="session not found")
+        session = await _load_owned_session(db, current_user.id, session_id)
         try:
             if SessionStatus(session.status) not in {
                 SessionStatus.QUEUED,
@@ -200,7 +277,9 @@ def build_router() -> APIRouter:
     async def get_artifacts(
         session_id: UUID,
         db: Annotated[AsyncSession, Depends(get_db_session)],
+        current_user: Annotated[User, Depends(get_current_user)],
     ) -> list[ArtifactOut]:
+        await _load_owned_session(db, current_user.id, session_id)
         result = await db.execute(select(Artifact).where(Artifact.session_id == session_id))
         return [
             ArtifactOut.model_validate(row, from_attributes=True) for row in result.scalars().all()
@@ -211,7 +290,9 @@ def build_router() -> APIRouter:
         session_id: UUID,
         artifact_id: UUID,
         db: Annotated[AsyncSession, Depends(get_db_session)],
+        current_user: Annotated[User, Depends(get_current_user)],
     ) -> FileResponse:
+        await _load_owned_session(db, current_user.id, session_id)
         artifact = await db.get(Artifact, artifact_id)
         if artifact is None or artifact.session_id != session_id:
             raise HTTPException(status_code=404, detail="artifact not found")
@@ -226,8 +307,11 @@ def build_router() -> APIRouter:
 
     @router.get("/sessions/{session_id}/usage", response_model=UsageOut)
     async def get_usage(
-        session_id: UUID, db: Annotated[AsyncSession, Depends(get_db_session)]
+        session_id: UUID,
+        db: Annotated[AsyncSession, Depends(get_db_session)],
+        current_user: Annotated[User, Depends(get_current_user)],
     ) -> UsageOut:
+        await _load_owned_session(db, current_user.id, session_id)
         result = await db.execute(select(UsageRecord).where(UsageRecord.session_id == session_id))
         usage = result.scalar_one_or_none()
         if usage is None:
@@ -242,8 +326,11 @@ def build_router() -> APIRouter:
         )
 
     @router.get("/github/install-url")
-    async def github_install_url(request: Request) -> dict[str, str]:
-        state = _install_state(request)
+    async def github_install_url(
+        request: Request,
+        current_user: Annotated[User, Depends(get_current_user)],
+    ) -> dict[str, str]:
+        state = _install_state(request, current_user.id)
         github_service = request.app.state.github_service
         if github_service is None:
             slug = request.app.state.settings.github_app_slug
@@ -270,9 +357,14 @@ def build_router() -> APIRouter:
     @router.get("/repos", response_model=list[RepoOut])
     async def list_repos(
         db: Annotated[AsyncSession, Depends(get_db_session)],
+        current_user: Annotated[User, Depends(get_current_user)],
         installation_id: UUID | None = None,
     ) -> list[RepoOut]:
-        statement = select(Repo)
+        statement = (
+            select(Repo)
+            .join(GithubInstallation)
+            .where(GithubInstallation.user_id == current_user.id)
+        )
         if installation_id is not None:
             statement = statement.where(Repo.installation_id == installation_id)
         result = await db.execute(statement)
@@ -281,12 +373,11 @@ def build_router() -> APIRouter:
 
     @router.get("/keys", response_model=list[LlmKeyOut])
     async def list_keys(
-        request: Request,
         db: Annotated[AsyncSession, Depends(get_db_session)],
+        current_user: Annotated[User, Depends(get_current_user)],
     ) -> list[LlmKeyOut]:
-        user_id = await _resolve_user_id(db)
         result = await db.execute(
-            select(LlmKey).where(LlmKey.user_id == user_id).order_by(LlmKey.created_at)
+            select(LlmKey).where(LlmKey.user_id == current_user.id).order_by(LlmKey.created_at)
         )
         keys = result.scalars().all()
         return [LlmKeyOut.model_validate(row, from_attributes=True) for row in keys]
@@ -296,12 +387,12 @@ def build_router() -> APIRouter:
         request: Request,
         payload: LlmKeyCreateRequest,
         db: Annotated[AsyncSession, Depends(get_db_session)],
+        current_user: Annotated[User, Depends(get_current_user)],
     ) -> LlmKeyOut:
         key_vault = _get_key_vault(request)
-        user_id = await _resolve_user_id(db)
         encrypted = key_vault.encrypt(payload.key)
         key_row = LlmKey(
-            user_id=user_id,
+            user_id=current_user.id,
             provider=payload.provider.value,
             label=payload.label,
             enc_key=encrypted,
@@ -313,13 +404,12 @@ def build_router() -> APIRouter:
 
     @router.delete("/keys/{key_id}", status_code=204)
     async def delete_key(
-        request: Request,
         key_id: UUID,
         db: Annotated[AsyncSession, Depends(get_db_session)],
+        current_user: Annotated[User, Depends(get_current_user)],
     ) -> Response:
-        user_id = await _resolve_user_id(db)
         key_row = await db.get(LlmKey, key_id)
-        if key_row is None or key_row.user_id != user_id:
+        if key_row is None or key_row.user_id != current_user.id:
             raise HTTPException(status_code=404, detail="key not found")
         await db.delete(key_row)
         await db.commit()
@@ -341,8 +431,26 @@ def build_router() -> APIRouter:
 def install_websocket_routes(app: FastAPI) -> None:
     @app.websocket("/ws/sessions/{session_id}")
     async def session_websocket(websocket: WebSocket, session_id: UUID) -> None:
-        await websocket.accept()
+        token = websocket.query_params.get("token")
+        if token is None or not token.strip():
+            await websocket.close(code=4401)
+            return
+        try:
+            current_user = await resolve_user_from_token_string(websocket, token.strip())
+        except HTTPException as exc:
+            if exc.status_code == 401:
+                await websocket.close(code=4401)
+            else:
+                await websocket.close(code=4403)
+            return
         sessionmaker_factory = app.state.sessionmaker
+        try:
+            async with sessionmaker_factory() as db:
+                await _load_owned_session(db, current_user.id, session_id)
+        except HTTPException:
+            await websocket.close(code=4403)
+            return
+        await websocket.accept()
         hub = app.state.event_hub
         async with sessionmaker_factory() as db:
             result = await db.execute(

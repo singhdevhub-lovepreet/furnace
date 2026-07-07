@@ -13,11 +13,12 @@ from sqlalchemy import select
 
 from services.app import create_app
 from services.config import Settings
-from services.db.models import Event, GithubInstallation, Repo, User
+from services.db.models import Event, GithubInstallation, Repo
 from services.scheduler.pool import PoolController
 from services.scheduler.provisioner.base import SessionSpec
 from services.scheduler.provisioner.fake import FakeProvisioner
 from services.sessions.state_machine import SessionStatus
+from tests.auth_helpers import signup_user
 
 
 @pytest_asyncio.fixture
@@ -27,6 +28,7 @@ async def pool_app(tmp_path: Path) -> AsyncGenerator[FastAPI, None]:
         artifacts_dir=str(tmp_path / "artifacts"),
         auto_create_schema=True,
         agent_runner="fake",
+        auth_jwt_secret="test-jwt-secret-0123456789abcdef012345",
         fake_max_slots=1,
         pool_capacity_override=1,
         pool_estimated_session_seconds=10,
@@ -41,10 +43,14 @@ async def pool_app(tmp_path: Path) -> AsyncGenerator[FastAPI, None]:
 async def seed_repo(app: FastAPI) -> UUID:
     sessionmaker = app.state.sessionmaker
     async with sessionmaker() as db:
-        user = User(email="pool@example.com", plan="pro")
-        installation = GithubInstallation(user=user, installation_id=1234, account_login="octo")
+        user_id = app.state.auth_user_id
+        installation = GithubInstallation(
+            user_id=user_id,
+            installation_id=1234,
+            account_login="octo",
+        )
         repo = Repo(installation=installation, full_name="octo/repo", default_branch="main")
-        db.add_all([user, installation, repo])
+        db.add_all([installation, repo])
         await db.commit()
         await db.refresh(repo)
         return repo.id
@@ -275,8 +281,11 @@ async def test_pool_controller_scale_signal_increases_when_queued() -> None:
 
 @pytest.mark.asyncio
 async def test_pool_end_to_end_queue_and_release(pool_app: FastAPI) -> None:
-    repo_id = await seed_repo(pool_app)
     async with AsyncClient(transport=ASGITransport(app=pool_app), base_url="http://test") as client:
+        user_id, token, _ = await signup_user(client, "pool@example.com", "password123")
+        client.headers["Authorization"] = f"Bearer {token}"
+        pool_app.state.auth_user_id = user_id
+        repo_id = await seed_repo(pool_app)
         first = await client.post(
             "/v1/sessions",
             json={"repo_id": str(repo_id), "prompt": "first", "model_policy": {}},

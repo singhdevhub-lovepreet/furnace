@@ -20,7 +20,6 @@ from services.db.models import (
     LlmKey,
     Repo,
     UsageRecord,
-    User,
 )
 from services.db.models import (
     Session as SessionRow,
@@ -28,6 +27,7 @@ from services.db.models import (
 from services.llm.policy import ModelPolicy, ModelSelection, ProviderName, resolve
 from services.llm.router import CompletionResult, ModelRouter
 from services.vault.key_vault import KeyVault, VaultError
+from tests.auth_helpers import signup_user
 
 
 def master_key_b64() -> str:
@@ -46,21 +46,12 @@ async def test_app(tmp_path: Path) -> AsyncGenerator[FastAPI, None]:
         artifacts_dir=str(tmp_path / "artifacts"),
         auto_create_schema=True,
         agent_runner="fake",
+        auth_jwt_secret="test-jwt-secret-0123456789abcdef012345",
         master_encryption_key=master_key_b64(),
     )
     app = create_app(settings)
     async with app.router.lifespan_context(app):
         yield app
-
-
-async def seed_user(app: FastAPI) -> UUID:
-    sessionmaker = app.state.sessionmaker
-    async with sessionmaker() as db:
-        user = User(email="byok@example.com", plan="pro")
-        db.add(user)
-        await db.commit()
-        await db.refresh(user)
-        return user.id
 
 
 async def seed_repo(app: FastAPI, user_id: UUID) -> UUID:
@@ -100,9 +91,10 @@ async def test_vault_roundtrip_and_tamper(vault: KeyVault) -> None:
 
 @pytest.mark.asyncio
 async def test_key_crud_hides_secret_and_persists_ciphertext(test_app: FastAPI) -> None:
-    await seed_user(test_app)
     plaintext = "sk-test-secret"
     async with AsyncClient(transport=ASGITransport(app=test_app), base_url="http://test") as client:
+        _user_id, token, _ = await signup_user(client, "byok@example.com", "password123")
+        client.headers["Authorization"] = f"Bearer {token}"
         create_response = await client.post(
             "/v1/keys",
             json={"provider": ProviderName.OPENAI.value, "label": "main", "key": plaintext},
@@ -135,9 +127,10 @@ async def test_key_crud_hides_secret_and_persists_ciphertext(test_app: FastAPI) 
 
 @pytest.mark.asyncio
 async def test_model_policy_validation_and_models_catalog(test_app: FastAPI) -> None:
-    user_id = await seed_user(test_app)
-    repo_id = await seed_repo(test_app, user_id)
     async with AsyncClient(transport=ASGITransport(app=test_app), base_url="http://test") as client:
+        user_id, token, _ = await signup_user(client, "byok@example.com", "password123")
+        client.headers["Authorization"] = f"Bearer {token}"
+        repo_id = await seed_repo(test_app, user_id)
         valid_response = await client.post(
             "/v1/sessions",
             json={
@@ -188,8 +181,10 @@ async def test_model_policy_validation_and_models_catalog(test_app: FastAPI) -> 
 
 @pytest.mark.asyncio
 async def test_model_router_decrypts_and_counts_tokens(test_app: FastAPI) -> None:
-    user_id = await seed_user(test_app)
     sessionmaker = test_app.state.sessionmaker
+    async with AsyncClient(transport=ASGITransport(app=test_app), base_url="http://test") as client:
+        user_id, token, _ = await signup_user(client, "byok@example.com", "password123")
+        client.headers["Authorization"] = f"Bearer {token}"
     secret = "sk-byok-secret"
     async with sessionmaker() as db:
         key_row = LlmKey(

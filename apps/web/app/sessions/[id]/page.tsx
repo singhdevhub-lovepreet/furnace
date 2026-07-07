@@ -15,6 +15,7 @@ import {
   UsageOut,
   sessionArtifactContentUrl,
 } from '@/lib/api'
+import { useAuth } from '@/components/AuthProvider'
 import { useSessionEvents } from '@/hooks/useSessionEvents'
 import { StatusBadge } from '@/components/StatusBadge'
 
@@ -37,6 +38,7 @@ function artifactLabel(artifact: ArtifactOut): string {
 }
 
 export default function SessionPage(): JSX.Element {
+  const auth = useAuth()
   const params = useParams<{ id: string }>()
   const sessionId = params.id
   const { events, connected, error: streamError } = useSessionEvents(sessionId)
@@ -48,6 +50,9 @@ export default function SessionPage(): JSX.Element {
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
+    if (auth.status !== 'authenticated') {
+      return
+    }
     const load = async () => {
       try {
         setError(null)
@@ -79,7 +84,7 @@ export default function SessionPage(): JSX.Element {
     return () => {
       window.clearInterval(interval)
     }
-  }, [sessionId])
+  }, [auth.status, sessionId])
 
   const onCancel = async () => {
     setBusy(true)
@@ -91,6 +96,16 @@ export default function SessionPage(): JSX.Element {
     } finally {
       setBusy(false)
     }
+  }
+
+  if (auth.status !== 'authenticated') {
+    return (
+      <main className="card-grid">
+        <section className="card">
+          <div className="muted">Loading account…</div>
+        </section>
+      </main>
+    )
   }
 
   return (

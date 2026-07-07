@@ -22,7 +22,7 @@ from sqlalchemy import select
 from services.api.routes import build_router, install_websocket_routes
 from services.api.schemas import RepoOut
 from services.config import Settings
-from services.db.models import Event, GithubInstallation, Repo, User
+from services.db.models import Event, GithubInstallation, Repo
 from services.db.models import Session as SessionRow
 from services.db.session import build_engine, build_sessionmaker, create_all
 from services.github.client import GitHubAppClient
@@ -33,6 +33,7 @@ from services.scheduler.provisioner.fake import FakeProvisioner
 from services.sessions.orchestrator import SessionOrchestrator
 from services.sessions.pubsub import SessionEventHub
 from services.sessions.state_machine import SessionStatus
+from tests.auth_helpers import signup_user
 
 
 class GitHubApiState:
@@ -63,6 +64,7 @@ async def github_app(tmp_path: Path) -> AsyncGenerator[FastAPI, None]:
         artifacts_dir=str(tmp_path / "artifacts"),
         auto_create_schema=True,
         agent_runner="fake",
+        auth_jwt_secret="test-jwt-secret-0123456789abcdef012345",
         github_app_id="12345",
         github_app_slug="raven-sample",
         github_app_private_key=private_key_pem,
@@ -210,11 +212,6 @@ async def test_list_installation_repos() -> None:
 @pytest.mark.asyncio
 async def test_install_url_and_webhook_sync(github_app: FastAPI) -> None:
     sessionmaker = github_app.state.sessionmaker
-    async with sessionmaker() as db:
-        user = User(email="github@example.com", plan="pro")
-        db.add(user)
-        await db.commit()
-
     state = GitHubApiState()
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -249,12 +246,16 @@ async def test_install_url_and_webhook_sync(github_app: FastAPI) -> None:
         async with AsyncClient(
             transport=ASGITransport(app=github_app), base_url="http://test"
         ) as api_client:
+            user_id, token, _ = await signup_user(api_client, "github@example.com", "password123")
+            api_client.headers["Authorization"] = f"Bearer {token}"
+
             install_url_response = await api_client.get("/v1/github/install-url")
             assert install_url_response.status_code == 200
             parsed = urlparse(install_url_response.json()["url"])
             assert parsed.netloc == "github.com"
             assert parsed.path == "/apps/raven-sample/installations/new"
-            assert "." in parse_qs(parsed.query)["state"][0]
+            state_parts = parse_qs(parsed.query)["state"][0].split(".")
+            assert state_parts[0] == str(user_id)
 
             body = {
                 "action": "created",
@@ -281,42 +282,39 @@ async def test_install_url_and_webhook_sync(github_app: FastAPI) -> None:
             repos = [RepoOut.model_validate(item) for item in repos_response.json()]
             assert [repo.full_name for repo in repos] == ["octo/example"]
 
-        async with sessionmaker() as db:
-            installation = (
-                await db.execute(
-                    select(GithubInstallation).where(GithubInstallation.installation_id == 9876)
+            async with sessionmaker() as db:
+                installation = (
+                    await db.execute(
+                        select(GithubInstallation).where(GithubInstallation.installation_id == 9876)
+                    )
+                ).scalar_one()
+                assert installation.account_login == "octo"
+                repo_rows = (
+                    (await db.execute(select(Repo).where(Repo.installation_id == installation.id)))
+                    .scalars()
+                    .all()
                 )
-            ).scalar_one()
-            assert installation.account_login == "octo"
-            repo_rows = (
-                (await db.execute(select(Repo).where(Repo.installation_id == installation.id)))
-                .scalars()
-                .all()
-            )
-            assert len(repo_rows) == 1
+                assert len(repo_rows) == 1
 
-        state.repositories = [
-            {"id": 101, "full_name": "octo/example", "default_branch": "main"},
-            {"id": 102, "full_name": "octo/second", "default_branch": "develop"},
-        ]
-        repo_event = {
-            "action": "added",
-            "installation": {"id": 9876, "account": {"login": "octo"}},
-            "repositories_added": [],
-            "repositories_removed": [],
-        }
-        repo_event_raw = json.dumps(repo_event).encode("utf-8")
-        repo_event_signature = (
-            "sha256="
-            + hmac.new(
-                github_app.state.settings.github_webhook_secret.encode("utf-8"),
-                repo_event_raw,
-                digestmod="sha256",
-            ).hexdigest()
-        )
-        async with AsyncClient(
-            transport=ASGITransport(app=github_app), base_url="http://test"
-        ) as api_client:
+            state.repositories = [
+                {"id": 101, "full_name": "octo/example", "default_branch": "main"},
+                {"id": 102, "full_name": "octo/second", "default_branch": "develop"},
+            ]
+            repo_event = {
+                "action": "added",
+                "installation": {"id": 9876, "account": {"login": "octo"}},
+                "repositories_added": [],
+                "repositories_removed": [],
+            }
+            repo_event_raw = json.dumps(repo_event).encode("utf-8")
+            repo_event_signature = (
+                "sha256="
+                + hmac.new(
+                    github_app.state.settings.github_webhook_secret.encode("utf-8"),
+                    repo_event_raw,
+                    digestmod="sha256",
+                ).hexdigest()
+            )
             response = await api_client.post(
                 "/v1/webhooks/github",
                 content=repo_event_raw,
@@ -327,19 +325,19 @@ async def test_install_url_and_webhook_sync(github_app: FastAPI) -> None:
             )
             assert response.status_code == 204
 
-        async with sessionmaker() as db:
-            repo_rows = (
-                (
-                    await db.execute(
-                        select(Repo)
-                        .join(GithubInstallation)
-                        .where(GithubInstallation.installation_id == 9876)
+            async with sessionmaker() as db:
+                repo_rows = (
+                    (
+                        await db.execute(
+                            select(Repo)
+                            .join(GithubInstallation)
+                            .where(GithubInstallation.installation_id == 9876)
+                        )
                     )
+                    .scalars()
+                    .all()
                 )
-                .scalars()
-                .all()
-            )
-            assert {row.full_name for row in repo_rows} == {"octo/example", "octo/second"}
+                assert {row.full_name for row in repo_rows} == {"octo/example", "octo/second"}
 
 
 @pytest.mark.asyncio
@@ -373,87 +371,93 @@ async def test_webhook_signature_rejects(github_app: FastAPI) -> None:
 @pytest.mark.asyncio
 async def test_github_cloner_uses_token_without_persisting_to_events(github_app: FastAPI) -> None:
     sessionmaker = github_app.state.sessionmaker
-    async with sessionmaker() as db:
-        user = User(email="github@example.com", plan="pro")
-        installation = GithubInstallation(user=user, installation_id=9876, account_login="octo")
-        repo = Repo(installation=installation, full_name="octo/example", default_branch="main")
-        db.add_all([user, installation, repo])
-        await db.commit()
-        await db.refresh(repo)
-        repo_id = repo.id
-
-    token_value = "installation-token-1"
-    state = GitHubApiState()
-    state.installation_token = token_value
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        state.requests.append(request)
-        if request.url.path == "/app/installations/9876/access_tokens":
-            return httpx.Response(
-                201,
-                json={
-                    "token": token_value,
-                    "expires_at": state.installation_expires_at.isoformat(),
-                },
-            )
-        raise AssertionError(f"unexpected path {request.url.path}")
-
     async with AsyncClient(
-        transport=MockTransport(handler), base_url="https://api.github.test"
-    ) as http_client:
-        client = GitHubAppClient(
-            http_client,
-            app_id="12345",
-            private_key_pem=github_app.state.settings.github_app_private_key,
-            api_base="https://api.github.test",
-        )
-        github_service = GitHubService(
-            sessionmaker=sessionmaker,
-            client=client,
-            settings=github_app.state.settings,
-        )
-        fake_provisioner = FakeProvisioner()
-        cloner = GitHubCloner(github=github_service, provisioner=fake_provisioner)
+        transport=ASGITransport(app=github_app), base_url="http://test"
+    ) as api_client:
+        user_id, token, _ = await signup_user(api_client, "github@example.com", "password123")
+        api_client.headers["Authorization"] = f"Bearer {token}"
 
         async with sessionmaker() as db:
-            repo = await db.get(Repo, repo_id)
-            assert repo is not None
-
-        outcome = await fake_provisioner.acquire(
-            SessionSpec(
-                image_id="sample-image",
-                cpu=4,
-                memory_hint_mb=4096,
-                ttl_seconds=60,
-                idle_timeout_seconds=30,
+            installation = GithubInstallation(
+                user_id=user_id,
+                installation_id=9876,
+                account_login="octo",
             )
-        )
-        await cloner.prepare(outcome.handle, repo)
-        assert len(fake_provisioner.put_files) == 1
-        assert len(fake_provisioner.exec_calls) == 1
-        assert fake_provisioner.put_files[0][2].decode("utf-8") == token_value
-        assert token_value not in fake_provisioner.exec_calls[0][2][1]
+            repo = Repo(installation=installation, full_name="octo/example", default_branch="main")
+            db.add_all([installation, repo])
+            await db.commit()
+            await db.refresh(repo)
+            repo_id = repo.id
 
-        pool_controller = PoolController(
-            provisioner=fake_provisioner,
-            capacity_override=4,
-            estimated_session_seconds=30,
-            scale_up_threshold=1,
-        )
-        orchestrator = SessionOrchestrator(
-            sessionmaker=sessionmaker,
-            provisioner=fake_provisioner,
-            pool_controller=pool_controller,
-            hub=SessionEventHub(),
-            artifacts_dir=Path(github_app.state.settings.artifacts_dir),
-            repo_cloner=cloner,
-            step_delay_seconds=0.01,
-        )
-        github_app.state.orchestrator = orchestrator
+        token_value = "installation-token-1"
+        state = GitHubApiState()
+        state.installation_token = token_value
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            state.requests.append(request)
+            if request.url.path == "/app/installations/9876/access_tokens":
+                return httpx.Response(
+                    201,
+                    json={
+                        "token": token_value,
+                        "expires_at": state.installation_expires_at.isoformat(),
+                    },
+                )
+            raise AssertionError(f"unexpected path {request.url.path}")
 
         async with AsyncClient(
-            transport=ASGITransport(app=github_app), base_url="http://test"
-        ) as api_client:
+            transport=MockTransport(handler), base_url="https://api.github.test"
+        ) as http_client:
+            client = GitHubAppClient(
+                http_client,
+                app_id="12345",
+                private_key_pem=github_app.state.settings.github_app_private_key,
+                api_base="https://api.github.test",
+            )
+            github_service = GitHubService(
+                sessionmaker=sessionmaker,
+                client=client,
+                settings=github_app.state.settings,
+            )
+            fake_provisioner = FakeProvisioner()
+            cloner = GitHubCloner(github=github_service, provisioner=fake_provisioner)
+
+            async with sessionmaker() as db:
+                repo = await db.get(Repo, repo_id)
+                assert repo is not None
+
+            outcome = await fake_provisioner.acquire(
+                SessionSpec(
+                    image_id="sample-image",
+                    cpu=4,
+                    memory_hint_mb=4096,
+                    ttl_seconds=60,
+                    idle_timeout_seconds=30,
+                )
+            )
+            await cloner.prepare(outcome.handle, repo)
+            assert len(fake_provisioner.put_files) == 1
+            assert len(fake_provisioner.exec_calls) == 1
+            assert fake_provisioner.put_files[0][2].decode("utf-8") == token_value
+            assert token_value not in fake_provisioner.exec_calls[0][2][1]
+
+            pool_controller = PoolController(
+                provisioner=fake_provisioner,
+                capacity_override=4,
+                estimated_session_seconds=30,
+                scale_up_threshold=1,
+            )
+            orchestrator = SessionOrchestrator(
+                sessionmaker=sessionmaker,
+                provisioner=fake_provisioner,
+                pool_controller=pool_controller,
+                hub=SessionEventHub(),
+                artifacts_dir=Path(github_app.state.settings.artifacts_dir),
+                repo_cloner=cloner,
+                step_delay_seconds=0.01,
+            )
+            github_app.state.orchestrator = orchestrator
+
             response = await api_client.post(
                 "/v1/sessions",
                 json={
@@ -466,15 +470,15 @@ async def test_github_cloner_uses_token_without_persisting_to_events(github_app:
             session_id = UUID(response.json()["id"])
             await wait_for_status(github_app, session_id, SessionStatus.SUCCEEDED)
 
-        async with sessionmaker() as db:
-            events = (
-                (
-                    await db.execute(
-                        select(Event).where(Event.session_id == session_id).order_by(Event.ts)
+            async with sessionmaker() as db:
+                events = (
+                    (
+                        await db.execute(
+                            select(Event).where(Event.session_id == session_id).order_by(Event.ts)
+                        )
                     )
+                    .scalars()
+                    .all()
                 )
-                .scalars()
-                .all()
-            )
-            serialized = json.dumps([event.payload for event in events])
-            assert token_value not in serialized
+                serialized = json.dumps([event.payload for event in events])
+                assert token_value not in serialized

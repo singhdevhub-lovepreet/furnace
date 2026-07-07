@@ -19,6 +19,7 @@ import {
   SessionListRow,
 } from '@/lib/api'
 import { StatusBadge } from '@/components/StatusBadge'
+import { useAuth } from '@/components/AuthProvider'
 
 interface NewSessionFormState {
   repoId: string
@@ -44,6 +45,7 @@ function firstModelForProvider(catalog: ModelCatalog, provider: ProviderName): s
 }
 
 export default function HomePage(): JSX.Element {
+  const auth = useAuth()
   const router = useRouter()
   const [sessions, setSessions] = useState<SessionOut[]>([])
   const [repos, setRepos] = useState<RepoOut[]>([])
@@ -65,6 +67,9 @@ export default function HomePage(): JSX.Element {
   )
 
   useEffect(() => {
+    if (auth.status !== 'authenticated') {
+      return
+    }
     const refresh = async () => {
       try {
         setError(null)
@@ -104,10 +109,10 @@ export default function HomePage(): JSX.Element {
     return () => {
       window.clearInterval(interval)
     }
-  }, [])
+  }, [auth.status])
 
   useEffect(() => {
-    if (!catalog) {
+    if (auth.status !== 'authenticated' || !catalog) {
       return
     }
     const provider = form.provider
@@ -115,7 +120,7 @@ export default function HomePage(): JSX.Element {
     if (nextModel && form.model !== nextModel) {
       setForm((current) => ({ ...current, model: nextModel }))
     }
-  }, [catalog, form.model, form.provider])
+  }, [auth.status, catalog, form.model, form.provider])
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -143,6 +148,16 @@ export default function HomePage(): JSX.Element {
   const providerOptions = catalog?.providers ?? []
   const selectedProviderModels =
     providerOptions.find((item) => item.provider === form.provider)?.models ?? []
+
+  if (auth.status !== 'authenticated') {
+    return (
+      <main className="card-grid">
+        <section className="card">
+          <div className="muted">Loading account…</div>
+        </section>
+      </main>
+    )
+  }
 
   return (
     <main className="card-grid">
