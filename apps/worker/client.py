@@ -7,6 +7,8 @@ calls dispatch through it.
 
 from __future__ import annotations
 
+import base64
+
 import httpx
 from pydantic import JsonValue
 
@@ -67,6 +69,25 @@ class WorkerToolClient:
 
     async def write_file(self, path: str, content: str) -> ToolResult:
         return await self.call(ToolName.WRITE_FILE, {"path": path, "content": content})
+
+    async def read_file_bytes(self, path: str) -> bytes:
+        result = await self.call(ToolName.READ_FILE, {"path": path, "encoding": "base64"})
+        if not result.ok:
+            raise RuntimeError(f"read_file failed for {path!r}: {result.error}")
+        content_b64 = result.data.get("content_b64")
+        if not isinstance(content_b64, str):
+            raise RuntimeError(f"read_file returned no content for {path!r}")
+        return base64.b64decode(content_b64)
+
+    async def write_file_bytes(self, path: str, content: bytes) -> ToolResult:
+        return await self.call(
+            ToolName.WRITE_FILE,
+            {
+                "path": path,
+                "content": base64.b64encode(content).decode("ascii"),
+                "encoding": "base64",
+            },
+        )
 
     async def build_app(
         self, project_path: str, scheme: str, configuration: str = "Debug"
