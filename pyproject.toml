@@ -32,7 +32,8 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["services*"]
+include = ["services*", "apps*"]
+namespaces = false
 
 [tool.ruff]
 target-version = "py312"
