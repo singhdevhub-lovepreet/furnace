@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -69,23 +71,36 @@ class WorkspaceOps:
         entries = sorted(entry.name + ("/" if entry.is_dir() else "") for entry in target.iterdir())
         return ToolResult(ok=True, data={"entries": list(entries)})
 
-    def read_file(self, path: str) -> ToolResult:
+    def read_file(self, path: str, *, encoding: str = "utf-8") -> ToolResult:
         target = self.resolve(path)
         if target is None:
             return ToolResult(ok=False, error="path escapes workspace")
         if not target.is_file():
             return ToolResult(ok=False, error=f"not a file: {path}")
-        content = target.read_bytes().decode("utf-8", errors="replace")
+        raw = target.read_bytes()
+        if encoding == "base64":
+            return ToolResult(
+                ok=True,
+                data={"content_b64": base64.b64encode(raw).decode("ascii")},
+            )
+        content = raw.decode("utf-8", errors="replace")
         truncated = len(content) > _MAX_READ_CHARS
         return ToolResult(
             ok=True,
             data={"content": content[:_MAX_READ_CHARS], "truncated": truncated},
         )
 
-    def write_file(self, path: str, content: str) -> ToolResult:
+    def write_file(self, path: str, content: str, *, encoding: str = "utf-8") -> ToolResult:
         target = self.resolve(path)
         if target is None:
             return ToolResult(ok=False, error="path escapes workspace")
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
+        if encoding == "base64":
+            try:
+                raw = base64.b64decode(content, validate=True)
+            except binascii.Error:
+                return ToolResult(ok=False, error="content is not valid base64")
+            target.write_bytes(raw)
+        else:
+            target.write_text(content, encoding="utf-8")
         return ToolResult(ok=True, data={"path": path})

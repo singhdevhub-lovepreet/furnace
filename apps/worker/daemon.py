@@ -74,7 +74,10 @@ class ToolDispatcher:
             path = _string_arg(args, "path")
             if path is None:
                 return _missing("path")
-            return self.workspace.read_file(path)
+            encoding = _string_arg(args, "encoding", "utf-8")
+            return self.workspace.read_file(
+                path, encoding=encoding if encoding is not None else "utf-8"
+            )
         if request.tool is ToolName.WRITE_FILE:
             path = _string_arg(args, "path")
             if path is None:
@@ -82,7 +85,10 @@ class ToolDispatcher:
             content = args.get("content")
             if not isinstance(content, str):
                 return _missing("content")
-            return self.workspace.write_file(path, content)
+            encoding = _string_arg(args, "encoding", "utf-8")
+            return self.workspace.write_file(
+                path, content, encoding=encoding if encoding is not None else "utf-8"
+            )
         if request.tool is ToolName.BUILD_APP:
             project_path = _string_arg(args, "project_path")
             scheme = _string_arg(args, "scheme")

@@ -21,7 +21,9 @@ from services.github.client import GitHubAppClient
 from services.github.service import GitHubCloner, GitHubService, NoopCloner, RepoCloner
 from services.llm.router import ModelRouter
 from services.scheduler.pool import PoolController
+from services.scheduler.provisioner.aws import AwsCliHostDriver, SshTartRuntime
 from services.scheduler.provisioner.base import MacProvisioner
+from services.scheduler.provisioner.ec2_tart import Ec2TartProvisioner
 from services.scheduler.provisioner.fake import FakeProvisioner
 from services.sessions.orchestrator import SessionOrchestrator
 from services.sessions.pubsub import SessionEventHub
@@ -33,6 +35,19 @@ def build_provisioner(settings: Settings) -> MacProvisioner:
         return FakeProvisioner(
             queue_acquire=settings.fake_queue_acquire,
             max_slots=settings.fake_max_slots,
+        )
+    if settings.provisioner == "ec2_tart":
+        return Ec2TartProvisioner(
+            host_driver=AwsCliHostDriver(
+                region=settings.aws_region,
+                availability_zone=settings.aws_availability_zone,
+                instance_type=settings.aws_mac_instance_type,
+                ami_id=settings.aws_mac_ami_id,
+                key_name=settings.aws_ssh_key_name,
+            ),
+            vm_runtime=SshTartRuntime(ssh_key_path=settings.aws_ssh_key_path),
+            golden_vm=settings.tart_golden_vm,
+            vms_per_host=settings.tart_vms_per_host,
         )
     raise NotImplementedError(f"unknown provisioner {settings.provisioner!r}")
 
