@@ -83,7 +83,7 @@ jobs:
         run: ruff format --check .
 
       - name: Mypy
-        run: mypy services tests
+        run: mypy services apps tests
 
       - name: Pytest
         run: pytest
